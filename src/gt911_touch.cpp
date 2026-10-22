@@ -1,4 +1,4 @@
-#if defined(CROWPANEL7) || defined(CYD32C) || defined(CYD35C) || defined(TDECK_PLUS)
+#if defined(CROWPANEL7) || defined(CYD32C) || defined(CYD35C) || defined(TDECK_PLUS) || defined(S3_BOX_3)
 #include "gt911_touch.h"
 #include <Arduino.h>
 #include <Wire.h>
@@ -17,6 +17,20 @@
 #define I2C_HZ         400000
 #define GT911_ADDR_A   0x5D
 #define GT911_ADDR_B   0x14
+#define GT911_REG_PRODUCT_ID 0x8140
+#define GT911_REG_STATUS     0x814E
+#define GT911_REG_POINT1     0x814F
+#elif defined(S3_BOX_3)
+// The Espressif ESP32-S3-Box-3: GT911 on I2C (SDA 8, SCL 18), shared with
+// the ES8311 audio codec at 0x18. INT on GPIO 3; RST is shared with LCD reset
+// on GPIO 48 (strapped in setup() to latch 0x14 first).
+#define PIN_I2C_SDA    8
+#define PIN_I2C_SCL   18
+#define PIN_TOUCH_RST -1
+#define PIN_TOUCH_INT  3
+#define I2C_HZ         400000
+#define GT911_ADDR_A   0x14
+#define GT911_ADDR_B   0x5D
 #define GT911_REG_PRODUCT_ID 0x8140
 #define GT911_REG_STATUS     0x814E
 #define GT911_REG_POINT1     0x814F
@@ -84,7 +98,7 @@ static bool i2cPresent(uint8_t addr) {
 // of reset is also what latches its address to 0x5D rather than 0x14, which
 // is why this runs before the identify rather than after a failed one.
 static void wake() {
-#if defined(TDECK_PLUS)
+#if defined(TDECK_PLUS) || defined(S3_BOX_3)
     // No reset line to pulse: the chip woke with the power rail. INT is
     // left as the chip's output.
     pinMode(PIN_TOUCH_INT, INPUT);

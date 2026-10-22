@@ -3,11 +3,14 @@
 #include "frame_push.h"   // busLock(): the card shares the panel's bus
 #include "sd_row.h"
 #include "clock.h"
+#if defined(S3_BOX_3)
+#include "blackbox.h"
+#endif
 #if defined(CYD_GPS)
 #include "gnss.h"
 #endif
 #include <SD.h>
-#if defined(FREENOVE_S3) || defined(FREENOVE_S3_35)
+#if defined(FREENOVE_S3) || defined(FREENOVE_S3_35) || defined(S3_BOX_3)
 // The Freenove S3's slot is wired for SDMMC, not SPI: every card call in this
 // file goes through CARD, which is SD_MMC there and SD everywhere else. Both
 // are an fs::FS, so open/remove/cardSize read the same either way.
@@ -68,7 +71,7 @@ bool SdLog::begin() {
     return false;
 #endif
     Serial.printf("[sd] mounting: heap %lu, largest block %lu\n", (unsigned long)ESP.getFreeHeap(), (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-#if defined(FREENOVE_S3) || defined(FREENOVE_S3_35)
+#if defined(FREENOVE_S3) || defined(FREENOVE_S3_35) || defined(S3_BOX_3)
     // SDMMC on the S3's GPIO matrix. Pins from Freenove's own SDMMC sketch and
     // the schematic: CLK 38, CMD 40, D0 39, D1 41, D2 48, D3 47 on the 2.8",
     // CLK 5, CMD 4, D0 6, D1 7, D2 2, D3 3 on the 3.5", each with a 10K
@@ -76,6 +79,13 @@ bool SdLog::begin() {
     // 1-bit (CLK/CMD/D0 only) before giving up, and the log says which.
 #if defined(FREENOVE_S3_35)
     SD_MMC.setPins(5, 4, 6, 7, 2, 3);
+#elif defined(S3_BOX_3)
+    // ESP32-S3-BOX-3-SENSOR dock microSD slot (Espressif esp-box-3 BSP):
+    // CLK 11, CMD 14, D0 9, D1 13, D2 42, D3 12; BSP_SD_POWER on GPIO 43.
+    pinMode(43, OUTPUT);
+    digitalWrite(43, LOW);
+    delay(20);
+    SD_MMC.setPins(11, 14, 9, 13, 42, 12);
 #else
     SD_MMC.setPins(38, 40, 39, 41, 48, 47);
 #endif
@@ -84,11 +94,28 @@ bool SdLog::begin() {
         SD_MMC.end();
 #if defined(FREENOVE_S3_35)
         SD_MMC.setPins(5, 4, 6);
+#elif defined(S3_BOX_3)
+        SD_MMC.setPins(11, 14, 9);
 #else
         SD_MMC.setPins(38, 40, 39);
 #endif
         mounted = SD_MMC.begin("/sd", true, false, SDMMC_FREQ_DEFAULT, SD_MAX_FILES);
         if (mounted) Serial.println("[sd] 4-bit did not start; mounted 1-bit");
+#if defined(S3_BOX_3)
+        if (!mounted) {
+            SD_MMC.end();
+            digitalWrite(43, HIGH);
+            delay(20);
+            SD_MMC.setPins(11, 14, 9, 13, 42, 12);
+            mounted = SD_MMC.begin("/sd", false, false, SDMMC_FREQ_DEFAULT, SD_MAX_FILES);
+            if (!mounted) {
+                SD_MMC.end();
+                SD_MMC.setPins(11, 14, 9);
+                mounted = SD_MMC.begin("/sd", true, false, SDMMC_FREQ_DEFAULT, SD_MAX_FILES);
+                if (mounted) Serial.println("[sd] 4-bit did not start; mounted 1-bit");
+            }
+        }
+#endif
     }
     if (!mounted) {
 #elif defined(CYD35)
@@ -181,15 +208,98 @@ void SdLog::openDaily() {
     // gets the nodate file, because its date can be days behind.
     _day = Clock::trusted() ? Clock::localDay() : 0;
     SdRow::fileName(_filename, sizeof(_filename), _day);
-#if defined(NM_CYD_C5)
+#if defined(NM_CYD_C5) || defined(S3_BOX_3)
     // Say what is already on the card for today. Mounting proves the card
     // answers; it does not prove a single row ever reached it, and until this
     // line existed the only way to tell the two apart was to pull the card.
     // Board-gated for the same reason as the branch in logEvent() below.
     FramePush::busLock();
-    File f = CARD.open(_filename, FILE_READ);
-    if (f) { Serial.printf("[sd] %s: %lu bytes already\n", _filename, (unsigned long)f.size()); f.close(); }
-    else   { Serial.printf("[sd] %s: new file\n", _filename); }
+    size_t existingBytes = 0;
+    if (CARD.exists(_filename)) {
+        File f = CARD.open(_filename, FILE_READ);
+        if (f) {
+            existingBytes = f.size();
+            Serial.printf("[sd] %s: %lu bytes already\n", _filename, (unsigned long)existingBytes);
+            f.close();
+        }
+    } else {
+        Serial.printf("[sd] %s: new file\n", _filename);
+    }
+#if defined(S3_BOX_3)
+    if (existingBytes == 0) {
+        File nf = CARD.open(_filename, FILE_WRITE);
+        if (nf) {
+            nf.println("time,type,rssi,mac,channel,vendor,name,lat,lon,acc");
+            uint16_t logSeeded = 0;
+            if (BlackBox::ready() && BlackBox::detectionsKept() > 0) {
+                struct LogCtx { File* f; uint16_t* n; } lctx = { &nf, &logSeeded };
+                BlackBox::forEachDetection([](const BlackBox::DetRecord& r, void* p) {
+                    LogCtx& c = *(LogCtx*)p;
+                    Detection d;
+                    memset(&d, 0, sizeof(d));
+                    memcpy(d.mac, r.mac, 6);
+                    d.rssi    = r.rssi;
+                    d.channel = r.channel;
+                    d.type    = (DetectionType)r.type;
+                    d.vendor  = r.vendor;
+                    memcpy(d.name, r.name, sizeof(d.name) < sizeof(r.name) ? sizeof(d.name) : sizeof(r.name));
+                    d.name[sizeof(d.name) - 1] = '\0';
+                    if (r.flags & BlackBox::DET_POS) d.name[11] = '\0';
+                    Gnss::Fix fix{};
+                    int32_t la = 0, lo = 0;
+                    const bool hasPos = BlackBox::detPosition(r, la, lo);
+                    if (hasPos) {
+                        fix.valid = true;
+                        fix.lat7  = la;
+                        fix.lon7  = lo;
+                        fix.accM  = 0;
+                        fix.atMs  = 0;
+                    }
+                    char line[SdRow::ROW_MAX];
+                    SdRow::line(line, sizeof(line), d, r.epoch, r.upSec * 1000UL,
+                                hasPos ? &fix : nullptr, false, 0);
+                    c.f->print(line);
+                    (*c.n)++;
+                    return true;
+                }, &lctx);
+            }
+            nf.flush();
+            nf.close();
+            Serial.printf("[sd] initialized %s with header + %u detection row(s)\n", _filename, (unsigned)logSeeded);
+        }
+    }
+    static bool s_bbSynced = false;
+    if (!s_bbSynced && BlackBox::ready() && BlackBox::detectionsKept() > 0) {
+        s_bbSynced = true;
+        File bf = CARD.open("/squachwatch-blackbox.csv", FILE_WRITE);
+        if (bf) {
+            bf.println("boot,epoch,up_s,type,mac,rssi,channel,hits,again,vendor,name,lat,lon");
+            uint16_t count = 0;
+            struct Ctx { File* f; uint16_t* n; } ctx = { &bf, &count };
+            BlackBox::forEachDetection([](const BlackBox::DetRecord& r, void* p) {
+                Ctx& c = *(Ctx*)p;
+                char pos[32] = ",";
+                int32_t la, lo;
+                if (BlackBox::detPosition(r, la, lo)) {
+                    snprintf(pos, sizeof pos, "%s%ld.%07ld,%s%ld.%07ld",
+                             la < 0 ? "-" : "", labs((long)la) / 10000000L, labs((long)la) % 10000000L,
+                             lo < 0 ? "-" : "", labs((long)lo) / 10000000L, labs((long)lo) % 10000000L);
+                }
+                c.f->printf("%u,%lu,%lu,%s,%02x:%02x:%02x:%02x:%02x:%02x,%d,%u,%u,%u,%s,%s,%s\n",
+                            (unsigned)r.boot, (unsigned long)r.epoch, (unsigned long)r.upSec,
+                            detectionTypeName((DetectionType)r.type),
+                            r.mac[0], r.mac[1], r.mac[2], r.mac[3], r.mac[4], r.mac[5],
+                            (int)r.rssi, (unsigned)r.channel, (unsigned)r.hits,
+                            (r.flags & BlackBox::DET_AGAIN) ? 1u : 0u, r.vendor, r.name, pos);
+                (*c.n)++;
+                return true;
+            }, &ctx);
+            bf.flush();
+            bf.close();
+            Serial.printf("[sd] exported %u stored detections to /squachwatch-blackbox.csv\n", (unsigned)count);
+        }
+    }
+#endif
     FramePush::busUnlock();
 #endif
 }
@@ -203,7 +313,7 @@ void SdLog::logEvent(const Detection& d) {
     File f = CARD.open(_filename, FILE_APPEND);
     if (!f) {
         FramePush::busUnlock();
-#if defined(NM_CYD_C5)
+#if defined(NM_CYD_C5) || defined(S3_BOX_3)
         // Once, not once per detection: a card that mounts but cannot be
         // opened for append reads exactly like a card that was logging, and
         // begin()'s own comment two screens up says that is the thing to
@@ -233,10 +343,21 @@ void SdLog::logEvent(const Detection& d) {
 #else
     SdRow::line(line, sizeof(line), d,
                 Clock::trusted() ? Clock::nowEpoch() : 0, millis(),
+#if defined(S3_BOX_3)
+                Gnss::fresh(millis()) ? &Gnss::fix() : nullptr, Gnss::faked(), Gnss::fix().atMs);
+#else
                 nullptr, false, 0);
 #endif
+#endif
     f.print(line);
+    f.flush();
     f.close();
+#if defined(S3_BOX_3)
+    Serial.printf("[sd] appended %s (%02X:%02X:%02X:%02X:%02X:%02X) to %s\n",
+                  detectionTypeName(d.type),
+                  d.mac[0], d.mac[1], d.mac[2], d.mac[3], d.mac[4], d.mac[5],
+                  _filename);
+#endif
     FramePush::busUnlock();
 }
 

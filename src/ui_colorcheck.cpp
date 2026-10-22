@@ -116,8 +116,10 @@ ColorCheckTap uiColorCheckHitTest(int x, int y, int screenW, int screenH) {
     computeGeom(screenW, screenH, squachyBaseY, squachyScale, captionTop, captionMaxW, wordsTop, wordRowH,
                 invX, invY, invW, invH, ordX, ordY, ordW, ordH, doneX, doneY, doneW, doneH);
 
-    if (x >= invX && x <= invX + invW && y >= invY && y <= invY + invH) return ColorCheckTap::INVERT;
-    if (x >= ordX && x <= ordX + ordW && y >= ordY && y <= ordY + ordH) return ColorCheckTap::ORDER;
-    if (x >= doneX && x <= doneX + doneW && y >= doneY && y <= doneY + doneH) return ColorCheckTap::DONE;
+    if (x >= doneX && x <= doneX + doneW && y >= doneY - 6) return ColorCheckTap::DONE;
+    if (y >= invY - 8 && y < doneY - 6) {
+        if (x >= invX && x <= invX + invW + 4) return ColorCheckTap::INVERT;
+        if (x >= ordX - 4 && x <= ordX + ordW) return ColorCheckTap::ORDER;
+    }
     return ColorCheckTap::NONE;
 }

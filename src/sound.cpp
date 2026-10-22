@@ -44,6 +44,11 @@ static const int PIN_AMP = 1;
 static const int PIN_MCK = -1, PIN_BCK = 7, PIN_WS = 5, PIN_DOUT = 6;
 static const int PIN_AMP = -1;
 #define SOUND_NO_CODEC 1
+#elif defined(S3_BOX_3)
+// ESP32-S3-Box-3: ES8311 at 0x18 on the touch I2C bus (SDA 8, SCL 18),
+// I2S on MCK 2, BCK 17, WS 45, DOUT 15, and NS4150 amp enable on GPIO 46 (HIGH = on).
+static const int PIN_MCK = 2, PIN_BCK = 17, PIN_WS = 45, PIN_DOUT = 15;
+static const int PIN_AMP = 46;
 #else
 static const int PIN_MCK = 4,  PIN_BCK = 5,  PIN_WS = 7,  PIN_DOUT = 8;
 static const int PIN_AMP = 1;
@@ -52,12 +57,16 @@ static const int PIN_AMP = 1;
 #define SOUND_NO_CODEC 0
 #endif
 static const uint8_t    CODEC   = 0x18;
-static const uint32_t   RATE    = 16000;      // plenty for tones under 4 kHz
+static const uint32_t   RATE    = 16000;       // plenty for tones under 4 kHz
 static const i2s_port_t PORT    = I2S_NUM_0;
-static const int        CHUNK   = 256;        // frames per write, 16 ms
+static const int        CHUNK   = 256;         // frames per write, 16 ms
 
 static bool          s_ok      = false;
-static bool          s_ampLow  = true;        // the amp plays with the pin LOW
+#if defined(S3_BOX_3)
+static bool          s_ampLow  = false;        // NS4150 PA_CTRL plays with GPIO 46 HIGH
+#else
+static bool          s_ampLow  = true;         // the amp plays with the pin LOW
+#endif
 static volatile bool s_hush    = false;
 static QueueHandle_t s_q       = nullptr;
 static TaskHandle_t  s_task    = nullptr;

@@ -50,7 +50,7 @@ class TFT_eSPI;
   #define SQW_FRAME_PUSH    1
   #define SQW_PUSH_DMA_ONLY 1
   #define SQW_PUSH_QSPI     1
-#elif defined(ARDUINO_ARCH_ESP32) && (defined(FREENOVE_S3) || defined(TDECK_PLUS))
+#elif defined(ARDUINO_ARCH_ESP32) && (defined(FREENOVE_S3) || defined(TDECK_PLUS) || defined(S3_BOX_3))
   // The T-Deck Plus takes the Freenove S3's route: the same chip, an SPI
   // panel, and pushSprite() cost it 40 of every 48 ms (measured 2026-10-12).
   #define SQW_FRAME_PUSH    1

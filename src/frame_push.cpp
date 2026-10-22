@@ -366,10 +366,11 @@ static void pushSpanQspi(const uint8_t* src, int32_t w, int32_t h, uint8_t rot, 
 #else
 
 static bool pushDma(TFT_eSPI& tft, int32_t w) {
-    if (s_dmaState) return s_dmaState > 0 && s_bounceW == w;
+    if (s_dmaState) return s_dmaState > 0 && w <= s_bounceW;
     s_dmaState = -1;
+    const int32_t maxW = (tft.width() > tft.height() ? tft.width() : tft.height()) > w ? (tft.width() > tft.height() ? tft.width() : tft.height()) : w;
     for (int k = 0; k < 2; k++)
-        s_bounce[k] = (uint16_t*)heap_caps_malloc((size_t)w * CHUNK_ROWS * sizeof(uint16_t),
+        s_bounce[k] = (uint16_t*)heap_caps_malloc((size_t)maxW * CHUNK_ROWS * sizeof(uint16_t),
                                                   MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (!s_bounce[0] || !s_bounce[1]) {
         Serial.println("[push] DMA: no room for the bounce buffers; the plain push stays");
@@ -382,10 +383,10 @@ static bool pushDma(TFT_eSPI& tft, int32_t w) {
         return false;
     }
     tft.setSwapBytes(false);                 // the table is already in wire order
-    s_bounceW  = w;
+    s_bounceW  = maxW;
     s_dmaState = 1;
     Serial.printf("[push] DMA on: %d-row chunks of %u bytes, heap %lu\n",
-                  (int)CHUNK_ROWS, (unsigned)(w * CHUNK_ROWS * 2), (unsigned long)ESP.getFreeHeap());
+                  (int)CHUNK_ROWS, (unsigned)(maxW * CHUNK_ROWS * 2), (unsigned long)ESP.getFreeHeap());
     return true;
 }
 

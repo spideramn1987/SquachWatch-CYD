@@ -2635,6 +2635,12 @@ static portMUX_TYPE s_bbMux = portMUX_INITIALIZER_UNLOCKED;
 
 
 void DetectionEngine::queueBlackBox(const Detection& d, bool again) {
+#if defined(S3_BOX_3)
+    if (again) {
+        const uint8_t snext = (uint8_t)((_sdQHead + 1) % SD_Q_CAP);
+        if (snext != _sdQTail) { _sdQ[_sdQHead] = d; _sdQHead = snext; }
+    }
+#endif
     if (!BlackBox::ready()) return;
     portENTER_CRITICAL(&s_bbMux);
     const uint8_t next = (uint8_t)((_bbQHead + 1) % BB_Q_CAP);

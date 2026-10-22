@@ -20,6 +20,8 @@ void setDensityScale(float scale) { s_density = scale > 0.5f ? scale : 1.0f; }
 // never worked), and whatever that left behind must not be inherited. From
 // PR #7 (DevOpsDAdams).
 static const char* FIT_NS  = "fn32fit";
+#elif defined(S3_BOX_3)
+static const char* FIT_NS  = "touchfit";
 #else
 static const char* FIT_NS  = "touchfit";
 #endif
@@ -29,6 +31,8 @@ static const uint8_t FIT_VERSION = 1;
 // Where the calibrations written by older firmware live -- read-only now.
 #if defined(FREENOVE32)
 static const char* NS = "fn32cal";
+#elif defined(S3_BOX_3)
+static const char* NS = "touchcal";
 #else
 static const char* NS = "touchcal";
 #endif

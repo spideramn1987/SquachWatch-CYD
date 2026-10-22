@@ -43,7 +43,7 @@
 #include "st77922_qspi.h"
 #include "st77922_touch.h"
 #endif
-#if defined(CYD32C) || defined(CYD35C) || defined(TDECK_PLUS)
+#if defined(CYD32C) || defined(CYD35C) || defined(TDECK_PLUS) || defined(S3_BOX_3)
 #include "gt911_touch.h"
 #endif
 // The 3.5" comes resistive (ESP32-3248S035R: touch on the display's own bus)
@@ -491,6 +491,8 @@ static void drawCrashCard(TFT_eSPI& t) {
 #define BL_PIN_S3   41   // the Freenove 3.5"'s, through a BSS138 (HIGH is on)
 #elif defined(TDECK_PLUS)
 #define BL_PIN_S3   42   // the T-Deck's 16-step driver chip: HIGH is full, pulses step it (tdeckBacklight)
+#elif defined(S3_BOX_3)
+#define BL_PIN_S3   47   // the ESP32-S3-Box-3's backlight (HIGH is on)
 #else
 #define BL_PIN_S3   45   // the T-Watch S3's and the Freenove S3's, both
 #endif
@@ -528,6 +530,10 @@ constexpr bool PANEL_NEEDS_INVERSION = true;
 // Freenove's own setup for the S3 2.8" (FNK0104AB) turns inversion on, and
 // confirmed on an FNK0104B 2026-09-25: colours right with INVERT untouched.
 constexpr bool PANEL_NEEDS_INVERSION = true;
+#elif defined(S3_BOX_3)
+// Confirmed on ESP32-S3-Box-3: ILI9342C colours are inverted when
+// PANEL_NEEDS_INVERSION is true; baseline must be false.
+constexpr bool PANEL_NEEDS_INVERSION = false;
 #elif defined(TDECK_PLUS)
 // LilyGo's T-Deck setup turns inversion on for its ST7789. UNCONFIRMED by
 // eye until the board is looked at; INVERT in Settings flips it if wrong.
@@ -750,6 +756,16 @@ static uint8_t madctlRotationBits(uint8_t rotation) {
     static const uint8_t BITS[4] = {
         0, MADCTL_MX | MADCTL_MV, MADCTL_MX | MADCTL_MY, MADCTL_MV | MADCTL_MY
     };
+#elif defined(S3_BOX_3)
+    // ESP32-S3-Box-3's ILI9342C is natively 320x240 landscape (MV=0 in
+    // landscape rotations 1 & 3; MV=1 in portrait rotations 0 & 2).
+    // Espressif's esp-box-3 BSP uses MX | MY (0xC8 with BGR) for upright landscape.
+    static const uint8_t BITS[4] = {
+        MADCTL_MV | MADCTL_MX,               // rot 0: portrait
+        MADCTL_MX | MADCTL_MY,               // rot 1: landscape upright (default)
+        MADCTL_MV | MADCTL_MY,               // rot 2: portrait flipped
+        0                                    // rot 3: landscape flipped 180 deg
+    };
 #else  // ILI9341_DRIVER or ST7796_DRIVER -- identical rotation table
     static const uint8_t BITS[4] = {
         MADCTL_MX, MADCTL_MV, MADCTL_MY, MADCTL_MX | MADCTL_MY | MADCTL_MV
@@ -794,7 +810,6 @@ static bool rawReadResistive(int16_t& a, int16_t& b);
 #if defined(CROWPANEL7)
 // The GT911 reports panel pixels, so these make initTouchFit()'s affine map a
 // plain divide by CROWPANEL_SCALE (2 here, 1 in the -native build) -- no
-// calibration is needed or wanted.
 static uint16_t CAP_NX_MIN = CROW_CAP_NX_MIN, CAP_NX_MAX = CROW_CAP_NX_MAX;
 static uint16_t CAP_NY_MIN = CROW_CAP_NY_MIN, CAP_NY_MAX = CROW_CAP_NY_MAX;
 #elif defined(TAB5)
@@ -1469,6 +1484,13 @@ static TouchPoint pollTouch() {
         if (tp.y < 0) tp.y = 0; else if (tp.y >= h) tp.y = h - 1;
     }
     tp.valid = sane;
+#if defined(S3_BOX_3)
+    static uint32_t s_lastTouchLog = 0;
+    if (tp.valid && (millis() - s_lastTouchLog > 120)) {
+        s_lastTouchLog = millis();
+        Serial.printf("[touch] raw (%d, %d) -> screen (%d, %d)\n", a, b, tp.x, tp.y);
+    }
+#endif
     return tp;
 }
 
@@ -1539,7 +1561,7 @@ static bool readTouchRaw(int16_t& a, int16_t& b) {
 #if defined(SQW_SMALL)
     (void)a; (void)b;
     return false;   // no touch panel at all: the buttons drive it
-#elif defined(CROWPANEL7) || defined(CYD32C) || defined(CYD35C) || defined(TDECK_PLUS)
+#elif defined(CROWPANEL7) || defined(CYD32C) || defined(CYD35C) || defined(TDECK_PLUS) || defined(S3_BOX_3)
     // The GT911 already reports panel pixels; TouchFit divides by the scale,
     // so nothing else differs.
     uint16_t x, y;
@@ -1841,9 +1863,22 @@ static void initTouchFit() {
         s_calSource = CalSource::OLD_SAVED;
         Serial.println("Touch: using the calibration older firmware saved.");
     }
+#if defined(S3_BOX_3)
+    // ESP32-S3-Box-3: GT911 capacitive touch reports physical panel pixels
+    // in 320x240 landscape (a = 0..320, b = 0..240).
+    // In default landscape (rotation 1 with MADCTL_MX | MADCTL_MY), nativeToScreen computes:
+    //   sx = ny = 320 - a
+    //   sy = w0 - nx = 240 - b
+    // Setting nx = b (0..240) and ny = 320 - a (0..320) maps accurately across all 4 rotations.
+    s_touchFit.xa = 0.0f;  s_touchFit.xb = -1.0f; s_touchFit.xc = 240.0f;
+    s_touchFit.ya = 1.0f;  s_touchFit.yb =  0.0f; s_touchFit.yc =   0.0f;
+    s_touchFit.w0 = (int16_t)w0;
+    s_touchFit.h0 = (int16_t)h0;
+#else
     s_touchFit = usingCapTouch
         ? TouchFit::fromRanges(CAP_NX_MIN, CAP_NX_MAX, CAP_NY_MIN, CAP_NY_MAX, w0, h0)
         : TouchFit::fromRanges(RAW_X_MIN, RAW_X_MAX, RAW_Y_MIN, RAW_Y_MAX, w0, h0);
+#endif
 }
 
 // esp_reset_reason() as a short, human-readable string -- the
@@ -2059,7 +2094,7 @@ static bool    s_confirmArmed = false;
 // The compiled-in ranges are a 2.8" board's. Anywhere else -- the digitisers
 // on the display's own bus -- they put taps nowhere near the finger, so a
 // board with nothing better has no SKIP to offer.
-#if defined(TOUCH_SHARES_DISPLAY_BUS) || defined(CYD35R) || defined(SQW_S3)
+#if defined(TOUCH_SHARES_DISPLAY_BUS) || defined(CYD35R) || (defined(SQW_S3) && !defined(S3_BOX_3))
 static const bool DEFAULT_TOUCH_USABLE = false;
 #else
 static const bool DEFAULT_TOUCH_USABLE = true;
@@ -4222,6 +4257,21 @@ void setup() {
     // GPIO27 and GPIO32 are the S3's PSRAM lines: touching either hangs the
     // chip until the watchdog reboots it. Both S3 boards' backlight is GPIO45.
     pinMode(BL_PIN_S3, OUTPUT); digitalWrite(BL_PIN_S3, HIGH);
+#if defined(S3_BOX_3)
+    // ESP32-S3-Box-3 shared LCD + GT911 reset on GPIO 48 is active-high
+    // (inverted transistor: HIGH asserts reset, LOW releases it to run).
+    // Holding GT911 INT (GPIO 3) LOW across reset release deterministically
+    // latches GT911 I2C address 0x14 on cold power-up.
+    pinMode(3, OUTPUT);
+    digitalWrite(3, LOW);
+    pinMode(48, OUTPUT);
+    digitalWrite(48, HIGH);
+    delay(20);
+    digitalWrite(48, LOW);
+    delay(10);
+    pinMode(3, INPUT);
+    delay(110);
+#endif
 #elif defined(CROWPANEL7)
     // Nothing at all. This board's backlight is not a GPIO -- it is an I2C
     // command to the helper MCU, sent once Wire is up. GPIO27/32 are the same
@@ -4597,6 +4647,11 @@ void setup() {
     { char b[16]; boardBatteryLine(b, sizeof b); Serial.printf("[batt] %s (raw GPIO%d %u mV)\n", b, BOARD_BAT_ADC, (unsigned)analogReadMilliVolts(BOARD_BAT_ADC)); }
     uiClearSetBatterySource(boardBatteryState);
     Sound::begin();                       // the I2S amp; no codec to find
+#elif defined(S3_BOX_3)
+    usingCapTouch = Gt911::begin();
+    Serial.println(usingCapTouch ? "ESP32-S3-Box-3 -- GT911 capacitive touch answered."
+                                 : "ESP32-S3-Box-3 -- GT911 did not answer; no touch.");
+    Sound::begin();                        // ES8311 codec at 0x18 shares the GT911's Wire bus
 #elif defined(TWATCH_S3)
     // The T-Watch's FT6336, on I2C SDA 39 / SCL 40 at 0x38. No reset line;
     // the AXP2101 powers it (ALDO3) in twatchPowerUp(), before this runs.
@@ -4697,7 +4752,7 @@ void setup() {
         uint32_t windowStart = millis();
         while (millis() - windowStart < 1200) {
             int16_t a, b;
-#if defined(CROWPANEL7) || defined(CYD32C) || defined(CYD35C) || defined(SQW_SMALL) || defined(FREENOVE_S3_35) || defined(TDECK_PLUS) || defined(TAB5)
+#if defined(CROWPANEL7) || defined(CYD32C) || defined(CYD35C) || defined(SQW_SMALL) || defined(FREENOVE_S3_35) || defined(TDECK_PLUS) || defined(TAB5) || defined(S3_BOX_3)
             // The GT911 (and the ST77922's touch) is neither of the two
             // below; the two-way dispatch polled a capacitive controller that
             // is not on this bus, a hundred bus errors a boot.
@@ -4749,13 +4804,13 @@ void setup() {
     // injected against the compiled-in ranges -- a calibration screen would
     // just sit there waiting for a finger.
     initTouchFit();
-#if defined(ESP32) && !defined(CROWPANEL7) && !defined(SQW_SMALL) && !defined(FREENOVE_S3_35) && !defined(TAB5)   // nothing to calibrate on a stick with no touch
+#if defined(ESP32) && !defined(CROWPANEL7) && !defined(SQW_SMALL) && !defined(FREENOVE_S3_35) && !defined(TAB5) && !defined(S3_BOX_3)   // nothing to calibrate on a stick with no touch
     if (s_calSource != CalSource::SAVED) {
         Serial.println("Touch: no five-target calibration yet -- running it now.");
         runTouchCalibration();
     }
 #endif
-#if defined(CROWPANEL7) || defined(FREENOVE_S3_35) || defined(TAB5)
+#if defined(CROWPANEL7) || defined(FREENOVE_S3_35) || defined(TAB5) || defined(S3_BOX_3)
     // Never on first boot here. The GT911 (and the ST77922's own touch)
     // reports panel pixels, so the compiled-in fit is already the identity
     // and there is nothing to calibrate -- making someone tap five targets
@@ -5946,8 +6001,10 @@ void loop() {
         }, nullptr);
     }
 #endif
-#if defined(FREENOVE_S3) || defined(FREENOVE_S3_35)
+#if defined(FREENOVE_S3) || defined(FREENOVE_S3_35) || defined(S3_BOX_3)
+#if !defined(S3_BOX_3)
     if (g_consoleBatt) { g_consoleBatt = false; boardBatteryPrintLog(); }
+#endif
     // The speaker's housekeeping: hushed while the saver has the screen
     // dimmed; a chime for a squad message that just landed (once per
     // message, by its arrival time); and the console's SOUND commands.
@@ -9216,6 +9273,8 @@ void loop() {
             info.usingCapTouch = usingCapTouch;
 #if defined(CROWPANEL7)
             info.boardName = "CrowPanel 7";
+#elif defined(S3_BOX_3)
+            info.boardName = "ESP32-S3-Box-3";
 #elif defined(TAB5)
             info.boardName = "Tab5 LAB";
 #elif defined(TOUCH_ON_DISPLAY_BUS)
@@ -9305,6 +9364,9 @@ void loop() {
             drawTwoBand([&](TFT_eSPI& t, bool) { uiColorCheckTick(t, now); });
             if (tp.valid && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
                 ColorCheckTap ctap = uiColorCheckHitTest(tp.x, tp.y, tft.width(), tft.height());
+#if defined(S3_BOX_3)
+                Serial.printf("[colorcheck] touch (%d,%d) -> action %d\n", tp.x, tp.y, (int)ctap);
+#endif
                 if (ctap == ColorCheckTap::INVERT) {
                     lastTouch = now;
                     Settings::toggleInvert();
