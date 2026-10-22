@@ -19,6 +19,7 @@
 #include "dex.h"
 #include "ui_dex.h"
 #include "ui_clear.h"   // uiClearSampleTile(), for the FONTS preview
+#include "ui_photo.h"
 #include "pet.h"        // Pet::drawSampleBalloon(), the same
 #include <Arduino.h>
 
@@ -33,7 +34,7 @@ static const int TOP_MARGIN = 32;
 
 // One scroll position per page, not one shared: see SettingsPage in the header.
 static SettingsPage s_page = SettingsPage::MAIN;
-static int g_scrollFor[6] = { 0, 0, 0, 0, 0, 0 };
+static int g_scrollFor[7] = { 0, 0, 0, 0, 0, 0, 0 };
 #define g_scroll (g_scrollFor[(uint8_t)s_page])
 
 // BACK is pinned along the bottom now. Height of that strip, reserved out of
@@ -109,7 +110,7 @@ static const SettingsRow ALL_ROWS[] = {
     // -- see APPEARANCE_ROWS. Everything about how he LOOKS is on one page;
     // what stays here is what he DOES.
     SettingsRow::REPLAY_INTRO, SettingsRow::SHOW_OFF, SettingsRow::VIEW_DIARY,
-    SettingsRow::BINGO, SettingsRow::DEX, SettingsRow::DESK_MODE,
+    SettingsRow::BINGO, SettingsRow::DEX, SettingsRow::DESK_MODE, SettingsRow::PHOTO_FRAME,
     SettingsRow::POWER_SAVER,
 #if defined(CYD_GPS)
     SettingsRow::WATCH_WARDRIVE,   // the watch's row and setting, on the CYD GPS builds
@@ -220,6 +221,13 @@ static const SettingsRow DESK_ROWS[] = {
 #endif
 };
 static const uint8_t DESK_ROWS_N = sizeof(DESK_ROWS) / sizeof(DESK_ROWS[0]);
+static const SettingsRow PHOTO_ROWS[] = {
+    SettingsRow::PHOTO_OPEN, SettingsRow::PHOTO_INTERVAL,
+    SettingsRow::PHOTO_ORDER, SettingsRow::PHOTO_FIT,
+    SettingsRow::PHOTO_CLOCK, SettingsRow::PHOTO_ALERTS,
+    SettingsRow::PHOTO_RESCAN,
+};
+static const uint8_t PHOTO_ROWS_N = sizeof(PHOTO_ROWS) / sizeof(PHOTO_ROWS[0]);
 static const uint8_t APPEARANCE_ROWS_N = sizeof(APPEARANCE_ROWS) / sizeof(APPEARANCE_ROWS[0]);
 // The display buffers below are sized off the longest of the lists (the
 // DESK MODE page's is checked against it just below).
@@ -256,7 +264,7 @@ static bool isSquachyOnlyRow(SettingsRow r) {
            r == SettingsRow::PET || r == SettingsRow::AURA;
 }
 
-enum class RowGroupId : uint8_t { APPEARANCE, BEHAVIOR, SQUACHY, SYSTEM, DESK, SQUAD, WATCH, FONTS };
+enum class RowGroupId : uint8_t { APPEARANCE, BEHAVIOR, SQUACHY, SYSTEM, DESK, SQUAD, WATCH, FONTS, PHOTO };
 
 static RowGroupId groupFor(SettingsRow r) {
     // Appearance sits with the Squachy rows because that is where it was asked
@@ -294,6 +302,14 @@ static RowGroupId groupFor(SettingsRow r) {
         case SettingsRow::CLOCK_BACKDROP:
         case SettingsRow::CLOCK_FORMAT:
             return RowGroupId::DESK;
+        case SettingsRow::PHOTO_OPEN:
+        case SettingsRow::PHOTO_INTERVAL:
+        case SettingsRow::PHOTO_ORDER:
+        case SettingsRow::PHOTO_FIT:
+        case SettingsRow::PHOTO_CLOCK:
+        case SettingsRow::PHOTO_ALERTS:
+        case SettingsRow::PHOTO_RESCAN:
+            return RowGroupId::PHOTO;
         case SettingsRow::DESK_SQUAD:
         case SettingsRow::DESK_CROWD:
         case SettingsRow::DESK_VISIT:
@@ -351,6 +367,7 @@ static RowGroupId groupFor(SettingsRow r) {
         case SettingsRow::BINGO:
         case SettingsRow::DEX:
         case SettingsRow::DESK_MODE:
+        case SettingsRow::PHOTO_FRAME:
         case SettingsRow::SHOW_OFF:
             return RowGroupId::SQUACHY;
         default:  // CALIBRATE, CHECK_COLORS, DIAGNOSTICS, RESET_STATS, BACK
@@ -364,6 +381,7 @@ static const char* groupName(RowGroupId g) {
         case RowGroupId::BEHAVIOR:   return "BEHAVIOR";
         case RowGroupId::SQUACHY:    return "SQUACHY";
         case RowGroupId::DESK:       return "DESK";
+        case RowGroupId::PHOTO:      return "PHOTO FRAME";
         case RowGroupId::SQUAD:      return "SQUAD";
         case RowGroupId::FONTS:      return "TEXT SIZE";
 #if defined(TDECK_PLUS)
@@ -384,6 +402,7 @@ static uint16_t groupColor(RowGroupId g) {
         case RowGroupId::BEHAVIOR:   return Theme::AMBER;
         case RowGroupId::SQUACHY:    return Theme::VAPOR_PINK;
         case RowGroupId::DESK:       return Theme::CYAN;
+        case RowGroupId::PHOTO:      return Theme::CYAN;
         case RowGroupId::SQUAD:      return Theme::GREEN;
         case RowGroupId::FONTS:      return Theme::CYAN;
         case RowGroupId::WATCH:      return Theme::AMBER;
@@ -410,6 +429,7 @@ static uint8_t buildDisplayList(DisplayItem* out) {
     if (s_page == SettingsPage::APPEARANCE) { src = APPEARANCE_ROWS; srcN = APPEARANCE_ROWS_N; }
     else if (s_page == SettingsPage::SYSTEM) { src = SYSTEM_ROWS;    srcN = SYSTEM_ROWS_N; }
     else if (s_page == SettingsPage::DESK)   { src = DESK_ROWS;      srcN = DESK_ROWS_N; }
+    else if (s_page == SettingsPage::PHOTO)  { src = PHOTO_ROWS;     srcN = PHOTO_ROWS_N; }
     else if (s_page == SettingsPage::FONTS)  { src = FONT_ROWS;      srcN = FONT_ROWS_N; }
 #if defined(TWATCH_S3)
     else if (s_page == SettingsPage::WATCH)  { src = WATCH_ROWS;     srcN = WATCH_ROWS_N; }
@@ -752,7 +772,7 @@ void uiSettingsInit(TFT_eSPI& t) {
     // visit -- carrying it across a fresh entry would drop you mid-list with
     // no idea why.
     s_page = SettingsPage::MAIN;
-    for (uint8_t i = 0; i < 6; i++) g_scrollFor[i] = 0;
+    for (uint8_t i = 0; i < 7; i++) g_scrollFor[i] = 0;
     // Any pending question dies with the screen. Coming back to Settings and
     // finding a confirm panel still up from last time would be answering
     // something you no longer remember asking.
@@ -926,7 +946,7 @@ static void drawPinnedBack(TFT_eSPI& t, int screenW, int screenH) {
     // The DESK MODE page splits the strip: OK on the left goes straight out
     // to wherever Settings was opened from, the desk or the main screen; UP
     // on the right is the usual one level up.
-    if (s_page == SettingsPage::DESK) {
+    if (s_page == SettingsPage::DESK || s_page == SettingsPage::PHOTO) {
         const int half = w / 2;
         t.drawFastVLine(x + half, y + 4, h - 8, Theme::PURPLE);
         t.setCursor(x + (half - t.textWidth("[ OK ]")) / 2, y + (h - t.fontHeight()) / 2);
@@ -941,7 +961,7 @@ static void drawPinnedBack(TFT_eSPI& t, int screenW, int screenH) {
 }
 
 bool uiSettingsTapPinnedOk(int x, int y, int screenW, int screenH) {
-    if (s_page != SettingsPage::DESK) return false;
+    if (s_page != SettingsPage::DESK && s_page != SettingsPage::PHOTO) return false;
     int bx, by, bw, bh;
     pinnedBackRect(screenW, screenH, bx, by, bw, bh);
     return x >= bx && x < bx + bw / 2 && y >= by && y < by + bh;
@@ -1178,6 +1198,30 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             break;
         case SettingsRow::CLOCK_FORMAT:
             label = "CLOCK FORMAT"; value = Settings::clock24Hour() ? "24 HOUR" : "12 HOUR";
+            break;
+        case SettingsRow::PHOTO_OPEN:
+            label = "OPEN FRAME"; value = ">";
+            break;
+        case SettingsRow::PHOTO_INTERVAL:
+            label = "SLIDESHOW"; value = Settings::photoIntervalName();
+            break;
+        case SettingsRow::PHOTO_ORDER:
+            label = "ORDER"; value = Settings::photoShuffle() ? "SHUFFLE" : "IN ORDER";
+            break;
+        case SettingsRow::PHOTO_FIT:
+            label = "ASPECT"; value = Settings::photoFill() ? "FILL SCREEN" : "FIT WHOLE";
+            break;
+        case SettingsRow::PHOTO_CLOCK:
+            label = "CLOCK + BATT"; value = Settings::photoClock() ? "ON" : "OFF";
+            break;
+        case SettingsRow::PHOTO_ALERTS:
+            label = "DETECTIONS"; value = Settings::photoAlerts() ? "CARD" : "OFF";
+            break;
+        case SettingsRow::PHOTO_RESCAN:
+            label = "RESCAN /photos";
+            snprintf(valBuf, valBufN, "%u FOUND", (unsigned)uiPhotoCount());
+            value = valBuf;
+            break;
             break;
 #if SQUACH_MESH
         case SettingsRow::DESK_SQUAD:
@@ -1477,6 +1521,10 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             label = "DESK MODE";
             value = ">";
             break;
+        case SettingsRow::PHOTO_FRAME:
+            label = "PHOTO FRAME";
+            value = ">";
+            break;
         case SettingsRow::RESET_STATS:
             label = "RESET STATS";
             snprintf(valBuf, valBufN, "%lu total", (unsigned long)eng.lifetimeTotal());
@@ -1561,6 +1609,7 @@ if (!Theme::stillBackdrop(t)) switch (Settings::background()) {
     if (s_page == SettingsPage::APPEARANCE) pageTitle = ">> APPEARANCE <<";
     else if (s_page == SettingsPage::SYSTEM) pageTitle = ">> SYSTEM <<";
     else if (s_page == SettingsPage::DESK)   pageTitle = ">> DESK MODE <<";
+    else if (s_page == SettingsPage::PHOTO)  pageTitle = ">> PHOTO FRAME <<";
     else if (s_page == SettingsPage::WATCH)  pageTitle = ">> WATCH SETTINGS <<";
     else if (s_page == SettingsPage::FONTS)  pageTitle = ">> FONTS <<";
     Theme::drawTitleBar(t, pageTitle);

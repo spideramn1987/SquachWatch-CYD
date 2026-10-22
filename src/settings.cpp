@@ -76,6 +76,15 @@ static uint8_t     s_clockFont     = 0;   // 0 segments, 1 Bangers
 static uint8_t     s_clockSize     = 1;   // 0 small, 1 medium, 2 large
 static uint8_t     s_clockBackdrop = 0;   // 0 plain, 1 rain, 2 snow, 3 toasters, 4 fire, 5 stars, 6 fireflies
 static bool        s_clock24Hour   = false;
+static bool        s_photoActive   = false;
+static uint8_t     s_photoIntIx    = 1;   // index into PHOTO_INTERVALS (default 1 = 10s)
+static bool        s_photoShuffle  = false;
+static bool        s_photoFill     = true;
+static bool        s_photoClock    = true;
+static bool        s_photoAlerts   = true;
+static const uint16_t    PHOTO_INTERVALS[]   = { 5, 10, 30, 60, 300, 0 };
+static const char* const PHOTO_INT_NAMES[]   = { "5 SEC", "10 SEC", "30 SEC", "1 MIN", "5 MIN", "MANUAL" };
+static const uint8_t     PHOTO_INTERVALS_N   = sizeof(PHOTO_INTERVALS) / sizeof(PHOTO_INTERVALS[0]);
 // FONTS: per kind of text, 0..4 for -2..+2 around the built size (2 is as
 // built). Keys fntMenu, fntText, fntBtn, fntBub, fntXp, fntPet. And a face
 // per kind, 0 as built, 1 PIXEL, 2 SMOOTH: keys fcMenu .. fcPet.
@@ -608,6 +617,12 @@ void load() {
     }
     s_clockBackdrop = s_prefs.getUChar("clkbg", 0);
     s_clock24Hour   = s_prefs.getBool("clk24", false);
+    s_photoIntIx    = s_prefs.getUChar("photoInt", 1);
+    if (s_photoIntIx >= PHOTO_INTERVALS_N) s_photoIntIx = 1;
+    s_photoShuffle  = s_prefs.getBool("photoShuf", false);
+    s_photoFill     = s_prefs.getBool("photoFill", true);
+    s_photoClock    = s_prefs.getBool("photoClk", true);
+    s_photoAlerts   = s_prefs.getBool("photoAlrt", true);
     if (s_clockFont > 1)     s_clockFont = 0;
     if (s_clockSize > 2)     s_clockSize = 1;
     if (s_clockBackdrop >= CLOCK_BG_N) s_clockBackdrop = 0;
@@ -785,6 +800,10 @@ void deskActive(bool on) {
     s_deskActive = on;
     // Written only on a change: this is called every time CLEAR is entered.
     if (s_prefs.getBool("deskOn", false) != on) s_prefs.putBool("deskOn", on);
+    if (on) {
+        s_photoActive = false;
+        if (s_prefs.getBool("photoOn", false)) s_prefs.putBool("photoOn", false);
+    }
 }
 bool deskWanted() { return s_prefs.getBool("deskOn", false); }
 static void stepDeskBackground(int dir) {
@@ -811,6 +830,27 @@ void        cycleClockBackdrop() { s_clockBackdrop = (uint8_t)((s_clockBackdrop 
 void        cyclePrevClockBackdrop() { s_clockBackdrop = (uint8_t)((s_clockBackdrop + CLOCK_BG_N - 1) % CLOCK_BG_N); s_prefs.putUChar("clkbg", s_clockBackdrop); }
 bool        clock24Hour() { return s_clock24Hour; }
 void        toggleClock24Hour() { s_clock24Hour = !s_clock24Hour; s_prefs.putBool("clk24", s_clock24Hour); }
+
+void photoActive(bool on) {
+    s_photoActive = on;
+    if (s_prefs.getBool("photoOn", false) != on) s_prefs.putBool("photoOn", on);
+    if (on) {
+        s_deskActive = false;
+        if (s_prefs.getBool("deskOn", false)) s_prefs.putBool("deskOn", false);
+    }
+}
+bool        photoWanted()        { return s_prefs.getBool("photoOn", false); }
+uint16_t    photoIntervalSec()   { return PHOTO_INTERVALS[s_photoIntIx < PHOTO_INTERVALS_N ? s_photoIntIx : 1]; }
+const char* photoIntervalName()  { return PHOTO_INT_NAMES[s_photoIntIx < PHOTO_INTERVALS_N ? s_photoIntIx : 1]; }
+void        cyclePhotoInterval() { s_photoIntIx = (uint8_t)((s_photoIntIx + 1) % PHOTO_INTERVALS_N); s_prefs.putUChar("photoInt", s_photoIntIx); }
+bool        photoShuffle()       { return s_photoShuffle; }
+void        togglePhotoShuffle() { s_photoShuffle = !s_photoShuffle; s_prefs.putBool("photoShuf", s_photoShuffle); }
+bool        photoFill()          { return s_photoFill; }
+void        togglePhotoFill()    { s_photoFill = !s_photoFill; s_prefs.putBool("photoFill", s_photoFill); }
+bool        photoClock()         { return s_photoClock; }
+void        togglePhotoClock()   { s_photoClock = !s_photoClock; s_prefs.putBool("photoClk", s_photoClock); }
+bool        photoAlerts()        { return s_photoAlerts; }
+void        togglePhotoAlerts()  { s_photoAlerts = !s_photoAlerts; s_prefs.putBool("photoAlrt", s_photoAlerts); }
 
 Background deskBackground() {
     if (s_deskBg != 255 && backgroundSelectable((Background)s_deskBg)) return (Background)s_deskBg;

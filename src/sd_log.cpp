@@ -269,6 +269,9 @@ void SdLog::openDaily() {
         }
     }
     static bool s_bbSynced = false;
+    if (!CARD.exists("/photos")) {
+        if (CARD.mkdir("/photos")) Serial.println("[sd] created /photos directory for Photo Frame Mode");
+    }
     if (!s_bbSynced && BlackBox::ready() && BlackBox::detectionsKept() > 0) {
         s_bbSynced = true;
         File bf = CARD.open("/squachwatch-blackbox.csv", FILE_WRITE);

@@ -338,7 +338,7 @@ static void drawPolaroid(TFT_eSPI& t, int top, float p, uint32_t now) {
 
 // compact: the narrow version that fits beside the clock's plate at the
 // top right, for when the message box has the bottom of the screen.
-static void drawAlertCard(TFT_eSPI& t, int barY, uint32_t now, bool compact, int leftX) {
+void uiDeskDrawAlertCard(TFT_eSPI& t, int barY, uint32_t now, bool compact, int leftX) {
     if (!uiDeskAlertUp(now)) return;
     const Detection& d = s_alert;
     const uint16_t c = Theme::colorFor(d.type);
@@ -740,7 +740,7 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adva
 
     // Over everything, so it is never behind his bubble. Bottom left is
     // clear of the polaroid and of the box in either rotation.
-    drawAlertCard(t, bar.y, now, false, 4);
+    uiDeskDrawAlertCard(t, bar.y, now, false, 4);
 }
 
 bool uiDeskHitMessage(int x, int y) {

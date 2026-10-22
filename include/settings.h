@@ -83,6 +83,24 @@ namespace Settings {
     void        cyclePrevClockBackdrop();
     bool        clock24Hour();
     void        toggleClock24Hour();
+
+    // ---- PHOTO FRAME -----------------------------------------------------
+    // Slideshow from /photos on the SD card (.jpg/.jpeg/.bmp). Mutually
+    // exclusive with deskActive(true) so a board left in Photo Frame Mode
+    // returns to it on boot and on goHome().
+    void        photoActive(bool on);
+    bool        photoWanted();
+    uint16_t    photoIntervalSec();     // 0 = manual
+    const char* photoIntervalName();
+    void        cyclePhotoInterval();
+    bool        photoShuffle();
+    void        togglePhotoShuffle();
+    bool        photoFill();            // true = FILL SCREEN (cover-crop), false = FIT WHOLE (letterbox)
+    void        togglePhotoFill();
+    bool        photoClock();           // true = corner clock & battery gauge overlay
+    void        togglePhotoClock();
+    bool        photoAlerts();          // true = detection alert card overlay
+    void        togglePhotoAlerts();
     void       cyclePrevBackground(); // same, but backward
 
     // Disables the two CLEAR-screen gestures that cycle background

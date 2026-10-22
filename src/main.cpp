@@ -323,6 +323,7 @@ static void drawCrashCard(TFT_eSPI& t) {
 #include "detection.h"
 #include "clock.h"
 #include "ui_desk.h"
+#include "ui_photo.h"
 #include "ui_zone.h"
 #include "ui_wifinets.h"
 #include "flood_bench.h"
@@ -2181,6 +2182,9 @@ static void restoreFrameBuffer();
 // An ALERT opened from the desk's small card goes back to the desk when it
 // is dismissed, not to CLEAR. Set in enterAlert(), spent here.
 static bool s_backToDesk = false;
+static bool s_backToPhoto = false;
+static void enterDesk();
+static void enterPhotoFrame();
 static void enterDesk();
 #if SQUACH_LORA && defined(TDECK_PLUS)
 // The same for an ALERT that popped over the LORA page, its settings or the
@@ -2210,6 +2214,7 @@ static void enterClear() {
     if (Security::locked()) { enterLocked(); return; }
     restoreFrameBuffer();   // lent to a download that did not end in a restart
     if (s_backToDesk) { s_backToDesk = false; enterDesk(); return; }
+    if (s_backToPhoto) { s_backToPhoto = false; enterPhotoFrame(); return; }
 #if SQUACH_LORA && defined(TDECK_PLUS)
     if (s_backToLora != AppState::CLEAR) {
         const AppState to = s_backToLora;
@@ -2220,6 +2225,7 @@ static void enterClear() {
     }
 #endif
     Settings::deskActive(false);
+    Settings::photoActive(false);
     Theme::releaseClockBackdrop();   // the clock fire's heat, if the desk had one
     state = AppState::CLEAR;
     transitionStart = millis();
@@ -2291,6 +2297,7 @@ static void twatchBuzz(Buzz kind);
 #endif
 static void enterAlert(const Detection& d) {
     s_backToDesk = (state == AppState::DESK);
+    s_backToPhoto = (state == AppState::PHOTO_FRAME);
 #if SQUACH_LORA && defined(TDECK_PLUS)
     s_backToLora = onLoraPage() ? state : AppState::CLEAR;
 #endif
@@ -2408,6 +2415,7 @@ static void enterSettings() {
 #endif
     restoreFrameBuffer();   // lent to a download that did not end in a restart
     Settings::deskActive(false);
+    Settings::photoActive(false);
     Theme::releaseClockBackdrop();
     state = AppState::SETTINGS;
     transitionStart = millis();
@@ -2419,6 +2427,13 @@ static void enterDesk() {
     state = AppState::DESK;
     transitionStart = millis();
     uiDeskInit(*canvas);
+}
+
+static void enterPhotoFrame() {
+    Settings::photoActive(true);
+    state = AppState::PHOTO_FRAME;
+    transitionStart = millis();
+    uiPhotoInit(*canvas, transitionStart);
 }
 
 static void enterDiagnostics() {
@@ -2678,6 +2693,7 @@ static bool s_passForNets = false;
 // when it is done -- the update window, and BINGO's OK.
 static void goHome() {
     if (Settings::deskWanted()) enterDesk();
+    else if (Settings::photoWanted()) enterPhotoFrame();
     else                        enterClear();
 }
 static void enterSysProps() {
@@ -2834,6 +2850,7 @@ static void startPinFlow(PinFlow f, const char* prompt = nullptr) {
 
 static void enterLocked() {
     Settings::deskActive(false);
+    Settings::photoActive(false);
     state = AppState::LOCKED;
     transitionStart = millis();
     s_scanPickerOpen = false;
@@ -5222,6 +5239,7 @@ static const char* timedScreenName(AppState s) {
         case AppState::CLEAR:       return "MAIN";
         case AppState::LOG:         return "LOG";
         case AppState::DESK:        return "DESK";
+        case AppState::PHOTO_FRAME: return "PHOTO";
         case AppState::RAWSCAN:     return "SCAN";
         case AppState::HUNT:        return "HUNT";
         case AppState::ALERT:       return "ALERT";
@@ -6682,6 +6700,7 @@ void loop() {
         if (odd) extPush();             // 46 ms a push: every other frame
     }
 #endif
+    uiPhotoSetWireActive(state == AppState::PHOTO_FRAME && (now - transitionStart >= TRANSITION_MS));
     switch (state) {
         case AppState::BOOT: {
 #if defined(CYD35)
@@ -6720,6 +6739,7 @@ void loop() {
                 // walkthrough, which has a screen of its own to finish.
                 else if (OtaCore::availableVersion()[0] && !Security::locked()) enterSysProps();
                 else if (Settings::deskWanted())  enterDesk();   // switched off on the desk: back to it
+                else if (Settings::photoWanted()) enterPhotoFrame();
                 else                              enterClear();
             }
             break;
@@ -6758,6 +6778,7 @@ void loop() {
                     uiAlertSetRedacted(false);
                     enterAlert(*latest);
                     s_backToDesk = Settings::deskWanted();   // dismissed, back where the window was over
+                    s_backToPhoto = Settings::photoWanted();
                     break;
                 }
                 if (engine.watchHitPending()) { enterWatchAlert(); break; }
@@ -8192,6 +8213,20 @@ void loop() {
                         case SettingsRow::DIAGNOSTICS:  enterDiagnostics(); break;
                         case SettingsRow::WIFI_NETWORKS: enterWifiNets(); break;
                         case SettingsRow::DESK_MODE:    uiSettingsOpenPage(SettingsPage::DESK); break;
+                        case SettingsRow::PHOTO_FRAME:  uiPhotoRescan(); uiSettingsOpenPage(SettingsPage::PHOTO); break;
+                        case SettingsRow::PHOTO_OPEN:
+                            s_backToPhoto = false;
+                            enterPhotoFrame();
+                            break;
+                        case SettingsRow::PHOTO_INTERVAL: Settings::cyclePhotoInterval(); break;
+                        case SettingsRow::PHOTO_ORDER:    Settings::togglePhotoShuffle(); break;
+                        case SettingsRow::PHOTO_FIT:      Settings::togglePhotoFill();    break;
+                        case SettingsRow::PHOTO_CLOCK:    Settings::togglePhotoClock();   break;
+                        case SettingsRow::PHOTO_ALERTS:   Settings::togglePhotoAlerts();  break;
+                        case SettingsRow::PHOTO_RESCAN:
+                            uiPhotoRescan();
+                            Theme::showToast("RESCANNED /photos", nullptr, Theme::CYAN);
+                            break;
                         case SettingsRow::DESK_OPEN:
                             // Settings' BACK from the desk comes back to it;
                             // having just been sent there, that is not a
@@ -9288,6 +9323,47 @@ void loop() {
             }
             break;
         }
+        case AppState::PHOTO_FRAME: {
+            Settings::photoActive(true);
+            if (now - transitionStart > 1500 && OtaCore::takeAvailableNotice()) {
+                enterSysProps();
+                break;
+            }
+            {
+                const Detection* latest = engine.latest();
+                if (latest && (now - latest->firstSeen) < 200 &&
+                    latest->conf >= Settings::minConfidence() && !IgnoreList::silenced(latest->mac) &&
+                    alertMayInterrupt(*latest)) {
+                    uiDeskAlert(*latest, now);
+                    lastAlertType = latest->type;
+                    squachyCatch(latest->type, latest->mac, latest->hits, latest->rssi, latest->conf);
+                }
+            }
+            drawTwoBand([&](TFT_eSPI& t, bool) {
+                uiPhotoTick(t, now, engine);
+                Theme::drawToast(t, now);
+            });
+            if (touchJustDown && tp.valid && (now - lastTouch) > TOUCH_DEBOUNCE_MS) {
+                lastTouch = now;
+                if (Settings::photoAlerts() && uiDeskHitAlert(tp.x, tp.y, now)) {
+                    uiAlertSetRedacted(false);
+                    enterAlert(*uiDeskAlertDetection());
+                } else if (uiPhotoHitBack(tp.x, tp.y, tft.width(), tft.height(), now)) {
+                    enterClear();
+                } else if (uiPhotoHitSettings(tp.x, tp.y, tft.width(), tft.height(), now)) {
+                    s_backToPhoto = true;
+                    enterSettings();
+                    uiSettingsOpenPage(SettingsPage::PHOTO);
+                } else if (uiPhotoHitNext(tp.x, tp.y, tft.width(), tft.height(), now)) {
+                    uiPhotoStep(1, now);
+                } else {
+                    const int edge = uiPhotoHitEdge(tp.x, tp.y, tft.width(), tft.height());
+                    if (edge != 0) uiPhotoStep(edge, now);
+                    else           uiPhotoToggleHud(now);
+                }
+            }
+            break;
+        }
         case AppState::DIAGNOSTICS: {
             DiagnosticsInfo info;
             {
@@ -9542,7 +9618,7 @@ void loop() {
         const uint16_t timeoutSec = Settings::screenTimeoutSec();
         // Desk mode is a clock; a clock that goes dark is not there.
         bool wantDim = timeoutSec && idleMs > (uint32_t)timeoutSec * 1000UL &&
-                       !(Settings::wakeOnAlert() && alerting) && state != AppState::DESK;
+                       !(Settings::wakeOnAlert() && alerting) && state != AppState::DESK && state != AppState::PHOTO_FRAME;
 #if defined(TWATCH_S3)
         // On the cable the watch stays lit; on battery the timeout always runs
         // (see Settings::screenTimeoutSec), unless it is set to NEVER.
@@ -9625,7 +9701,7 @@ void loop() {
         // three flashes a detection gets in its own colour.
         if (state == AppState::HUNT && uiHuntCaught()) { lc.alert = true; lc.alertColor = Theme::GREEN; }
         if (state == AppState::DESK && uiDeskChime(now)) { lc.alert = true; lc.alertColor = Theme::GREEN; }
-        if (state == AppState::DESK && uiDeskAlertUp(now)) { lc.alert = true; lc.alertColor = Theme::colorFor(uiDeskAlertDetection()->type); }
+        if ((state == AppState::DESK || state == AppState::PHOTO_FRAME) && uiDeskAlertUp(now)) { lc.alert = true; lc.alertColor = Theme::colorFor(uiDeskAlertDetection()->type); }
 #if SQUACH_MESH
         lc.unread     = MeshTalk::inbox().unread;
         lc.visiting   = Squachy::visiting();

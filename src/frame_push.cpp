@@ -1,4 +1,5 @@
 #include "frame_push.h"
+#include "ui_photo.h"
 #include <TFT_eSPI.h>
 #if defined(S3_BOX_3)
 #include "settings.h"
@@ -435,6 +436,8 @@ static int32_t pushRowsDma(TFT_eSPI& tft, const uint8_t* src, int32_t w, int32_t
     static spi_transaction_t tr[2];
     int k = 0;
     bool inFlight = false;
+    const uint8_t*  match8  = nullptr;
+    const uint16_t* wire565 = uiPhotoWire565(match8, w, h);
 #if defined(S3_BOX_3)
     const uint8_t scalePct = Settings::screenScale();
     const int32_t innerW = (scalePct < 100) ? (((w * (int32_t)scalePct + 50) / 100) & ~1) : w;
@@ -466,7 +469,25 @@ static int32_t pushRowsDma(TFT_eSPI& tft, const uint8_t* src, int32_t w, int32_t
                     const uint8_t* r0 = src + (size_t)sy0 * (size_t)w;
                     const uint8_t* r1 = src + (size_t)sy1 * (size_t)w;
                     uint16_t* dst = bRow + insetX;
-                    if (sy0 == sy1) {
+                    if (wire565) {
+                        const size_t row0Off = (size_t)sy0 * (size_t)w;
+                        const size_t row1Off = (size_t)sy1 * (size_t)w;
+                        for (int32_t ox = 0; ox < innerW; ox++) {
+                            const size_t i00 = row0Off + s_mapX0[ox];
+                            const size_t i01 = row0Off + s_mapX1[ox];
+                            if (src[i00] != match8[i00]) {
+                                dst[ox] = s_lut[src[i00]];
+                            } else if (src[i01] != match8[i01]) {
+                                dst[ox] = s_lut[src[i01]];
+                            } else if (sy1 != sy0 && src[row1Off + s_mapX0[ox]] != match8[row1Off + s_mapX0[ox]]) {
+                                dst[ox] = s_lut[src[row1Off + s_mapX0[ox]]];
+                            } else if (sy1 != sy0 && src[row1Off + s_mapX1[ox]] != match8[row1Off + s_mapX1[ox]]) {
+                                dst[ox] = s_lut[src[row1Off + s_mapX1[ox]]];
+                            } else {
+                                dst[ox] = wire565[i00];
+                            }
+                        }
+                    } else if (sy0 == sy1) {
                         for (int32_t ox = 0; ox < innerW; ox++) {
                             uint8_t c = r0[s_mapX0[ox]];
                             if (!c) c = r0[s_mapX1[ox]];
@@ -488,7 +509,13 @@ static int32_t pushRowsDma(TFT_eSPI& tft, const uint8_t* src, int32_t w, int32_t
         {
             const uint32_t* p4 = (const uint32_t*)p;
             uint32_t*       b4 = (uint32_t*)b;
-            for (uint32_t i = 0; i < px; i += 4) {
+            if (wire565) {
+                const size_t baseOff = (size_t)(startRow + pushed) * (size_t)w;
+                for (uint32_t i = 0; i < px; i++) {
+                    const size_t idx = baseOff + i;
+                    b[i] = (p[i] == match8[idx]) ? wire565[idx] : s_lut[p[i]];
+                }
+            } else for (uint32_t i = 0; i < px; i += 4) {
                 const uint32_t v = *p4++;
                 b4[0] = (uint32_t)s_lut[v & 0xff]         | ((uint32_t)s_lut[(v >> 8) & 0xff] << 16);
                 b4[1] = (uint32_t)s_lut[(v >> 16) & 0xff] | ((uint32_t)s_lut[v >> 24] << 16);

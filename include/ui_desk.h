@@ -41,6 +41,7 @@ void             uiDeskAlert(const Detection& d, uint32_t now);
 bool             uiDeskAlertUp(uint32_t now);
 const Detection* uiDeskAlertDetection();
 bool             uiDeskHitAlert(int x, int y, uint32_t now);
+void             uiDeskDrawAlertCard(TFT_eSPI& t, int barY, uint32_t now, bool compact = false, int leftX = 4);
 
 // A squad message on the desk: a polaroid of the sender's Squachy, his
 // name in the margin, the message on a note beside it, and the time it

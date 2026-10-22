@@ -64,6 +64,14 @@ enum class SettingsRow : uint8_t {
     CLOCK_FONT,      // on the DESK MODE page: segments or Bangers
     CLOCK_SIZE,      // on the DESK MODE page: small, medium, large
     CLOCK_BACKDROP,  // on the DESK MODE page: what plays inside the clock
+    PHOTO_FRAME,     // opens the PHOTO FRAME page
+    PHOTO_OPEN,      // on the PHOTO FRAME page: go to the photo frame
+    PHOTO_INTERVAL,  // on the PHOTO FRAME page: slideshow step interval
+    PHOTO_ORDER,     // on the PHOTO FRAME page: IN ORDER or SHUFFLE
+    PHOTO_FIT,       // on the PHOTO FRAME page: FILL SCREEN or FIT WHOLE
+    PHOTO_CLOCK,     // on the PHOTO FRAME page: corner clock & battery overlay
+    PHOTO_ALERTS,    // on the PHOTO FRAME page: compact detection alert card overlay
+    PHOTO_RESCAN,    // on the PHOTO FRAME page: rescan /photos on SD card
     WATCH_BATTERY,   // the T-Watch only: charge and voltage, under WATCH
     WATCH_RADIO,     // the T-Watch only: the radio duty cycle, under WATCH
     WATCH_LISTEN,    // the T-Watch only: BLE LISTEN, how much of the time the receiver is open
@@ -117,7 +125,7 @@ void uiSettingsScroll(int delta);     // positive = scroll down
 // Each page keeps its OWN scroll position, so leaving a page and coming back
 // puts you where you were instead of at the top -- the list is long enough
 // that losing your place was the most-felt annoyance on this screen.
-enum class SettingsPage : uint8_t { MAIN = 0, APPEARANCE = 1, SYSTEM = 2, DESK = 3, WATCH = 4, FONTS = 5 };
+enum class SettingsPage : uint8_t { MAIN = 0, APPEARANCE = 1, SYSTEM = 2, DESK = 3, WATCH = 4, FONTS = 5, PHOTO = 6 };
 // Where UP goes from a page: FONTS sits inside APPEARANCE, the rest inside MAIN.
 SettingsPage uiSettingsParentPage();
 void         uiSettingsOpenPage(SettingsPage p);
