@@ -1,5 +1,8 @@
 #include "frame_push.h"
 #include <TFT_eSPI.h>
+#if defined(S3_BOX_3)
+#include "settings.h"
+#endif
 #if defined(NM_CYD_C5)
 #include <soc/pcr_reg.h>
 #endif
@@ -404,8 +407,26 @@ static bool pushDma(TFT_eSPI& tft, int32_t w) {
 // long to wait (the T-Deck heard MeshCore's preambles and missed every
 // header, 2026-10-12); a chunk is about a millisecond.
 static void busStepAside();   // below, with the bus mutex it hands over
-static int32_t pushRowsDma(TFT_eSPI& tft, const uint8_t* p, int32_t w, int32_t rows) {
+#if defined(S3_BOX_3)
+static uint16_t s_mapX0[320], s_mapX1[320];
+static int32_t  s_mapW = 0;
+static uint8_t  s_mapScale = 0;
+static void ensureScaleMapX(int32_t w, uint8_t scalePct, int32_t innerW) {
+    if (s_mapW == w && s_mapScale == scalePct) return;
+    for (int32_t ox = 0; ox < innerW; ox++) {
+        s_mapX0[ox] = (uint16_t)((ox * w) / innerW);
+        int32_t x1 = ((ox + 1) * w - 1) / innerW;
+        if (x1 >= w) x1 = w - 1;
+        s_mapX1[ox] = (uint16_t)x1;
+    }
+    s_mapW = w;
+    s_mapScale = scalePct;
+}
+#endif
+static int32_t pushRowsDma(TFT_eSPI& tft, const uint8_t* src, int32_t w, int32_t h, int32_t startRow, int32_t rows) {
     (void)tft;
+    (void)h;
+    const uint8_t* p = src + (size_t)startRow * (size_t)w;
     int32_t pushed = 0;
     // Queued, interrupt-driven, and pipelined: this chunk converts into one
     // bounce buffer while the one before is on the wire from the other, and
@@ -414,15 +435,56 @@ static int32_t pushRowsDma(TFT_eSPI& tft, const uint8_t* p, int32_t w, int32_t r
     static spi_transaction_t tr[2];
     int k = 0;
     bool inFlight = false;
+#if defined(S3_BOX_3)
+    const uint8_t scalePct = Settings::screenScale();
+    const int32_t innerW = (scalePct < 100) ? (((w * (int32_t)scalePct + 50) / 100) & ~1) : w;
+    const int32_t innerH = (scalePct < 100) ? (((h * (int32_t)scalePct + 50) / 100) & ~1) : h;
+    const int32_t insetX = (w - innerW) / 2;
+    const int32_t insetY = (h - innerH) / 2;
+    if (scalePct < 100 && innerW > 0) ensureScaleMapX(w, scalePct, innerW);
+#endif
     while (rows > 0) {
         const int32_t n  = rows < CHUNK_ROWS ? rows : CHUNK_ROWS;
         const uint32_t px = (uint32_t)n * (uint32_t)w;
         uint16_t* b = s_bounce[k & 1];
-        // Four pixels per read: the source is PSRAM, where a byte costs the
-        // same as a word, and this task shares the one core with the
-        // drawing, so every cycle here is a cycle the frame does not get.
-        // Rows are a multiple of four pixels and word-aligned (rowHash
-        // relies on the same), so px is too.
+#if defined(S3_BOX_3)
+        if (scalePct < 100 && innerW > 0 && innerH > 0) {
+            for (int32_t r = 0; r < n; r++) {
+                const int32_t outY = startRow + pushed + r;
+                uint16_t* bRow = b + (size_t)r * (size_t)w;
+                if (outY < insetY || outY >= h - insetY) {
+                    memset(bRow, 0, (size_t)w * sizeof(uint16_t));
+                } else {
+                    if (insetX > 0) {
+                        memset(bRow, 0, (size_t)insetX * sizeof(uint16_t));
+                        memset(bRow + w - insetX, 0, (size_t)insetX * sizeof(uint16_t));
+                    }
+                    const int32_t oy = outY - insetY;
+                    const int32_t sy0 = (oy * h) / innerH;
+                    int32_t sy1 = ((oy + 1) * h - 1) / innerH;
+                    if (sy1 >= h) sy1 = h - 1;
+                    const uint8_t* r0 = src + (size_t)sy0 * (size_t)w;
+                    const uint8_t* r1 = src + (size_t)sy1 * (size_t)w;
+                    uint16_t* dst = bRow + insetX;
+                    if (sy0 == sy1) {
+                        for (int32_t ox = 0; ox < innerW; ox++) {
+                            uint8_t c = r0[s_mapX0[ox]];
+                            if (!c) c = r0[s_mapX1[ox]];
+                            dst[ox] = s_lut[c];
+                        }
+                    } else {
+                        for (int32_t ox = 0; ox < innerW; ox++) {
+                            uint8_t c = r0[s_mapX0[ox]];
+                            if (!c) c = r0[s_mapX1[ox]];
+                            if (!c) c = r1[s_mapX0[ox]];
+                            if (!c) c = r1[s_mapX1[ox]];
+                            dst[ox] = s_lut[c];
+                        }
+                    }
+                }
+            }
+        } else
+#endif
         {
             const uint32_t* p4 = (const uint32_t*)p;
             uint32_t*       b4 = (uint32_t*)b;
@@ -542,7 +604,17 @@ static bool pushNow(TFT_eSPI& tft, const uint8_t* src, int32_t w, int32_t h, int
 
     // A frame is every band of it, so the periodic full refresh counts pushes
     // rather than frames: 64 pushes is 64 frames on one band and 32 on two.
+#if defined(S3_BOX_3)
+    static uint8_t s_lastScalePct = 0;
+    const uint8_t scalePct = Settings::screenScale();
+    const bool scaleChanged = (scalePct != s_lastScalePct);
+    s_lastScalePct = scalePct;
+    const int32_t innerH = (scalePct < 100) ? (((h * (int32_t)scalePct + 50) / 100) & ~1) : h;
+    const int32_t insetY = (h - innerH) / 2;
+    const bool full = !s_valid || s_validW != w || s_validH != h || scaleChanged || (s_frameNo % 64) == 0;
+#else
     const bool full = !s_valid || s_validW != w || s_validH != h || (s_frameNo % 64) == 0;
+#endif
     s_frameNo++;
 
     // Hash every row, and mark the ones to send. Full: all of them.
@@ -550,7 +622,26 @@ static bool pushNow(TFT_eSPI& tft, const uint8_t* src, int32_t w, int32_t h, int
     int32_t nChanged = 0;
     SQW_PUSH_CLOCK(tHash);
     for (int32_t r = 0; r < h; r++) {
+#if defined(S3_BOX_3)
+        uint32_t hv;
+        if (scalePct < 100 && innerH > 0) {
+            if (r < insetY || r >= h - insetY) {
+                hv = 0x5CA1E000u ^ (uint32_t)scalePct;
+            } else {
+                const int32_t oy = r - insetY;
+                const int32_t sy0 = (oy * h) / innerH;
+                int32_t sy1 = ((oy + 1) * h - 1) / innerH;
+                if (sy1 >= h) sy1 = h - 1;
+                hv = rowHash(src + (size_t)sy0 * (size_t)w, w);
+                if (sy1 != sy0) hv ^= rowHash(src + (size_t)sy1 * (size_t)w, w) * 16777619u;
+                hv ^= ((uint32_t)scalePct << 24);
+            }
+        } else {
+            hv = rowHash(src + (size_t)r * (size_t)w, w);
+        }
+#else
         const uint32_t hv = rowHash(src + (size_t)r * (size_t)w, w);
+#endif
         changed[r] = full || hv != s_rowHash[y + r];
 #if defined(NM_CYD_C5) && SQW_C5_FLIP_DIAG
         if (s_valid && hv != s_rowHash[y + r] && hv == s_rowHash2[y + r]) s_flipRows++;
@@ -628,7 +719,7 @@ static bool pushNow(TFT_eSPI& tft, const uint8_t* src, int32_t w, int32_t h, int
             if (dma) {
                 int32_t at = r0;
                 while (at < r1) {
-                    const int32_t did = pushRowsDma(tft, src + (size_t)at * (size_t)w, w, r1 - at);
+                    const int32_t did = pushRowsDma(tft, src, w, h, at, r1 - at);
                     s_lastRows += did;
                     at += did;
                     if (did == 0 || at >= r1) break;

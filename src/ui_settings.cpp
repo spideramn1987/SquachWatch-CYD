@@ -139,6 +139,9 @@ static const SettingsRow APPEARANCE_ROWS[] = {
     // Then how the SCREEN looks.
     SettingsRow::THEME, SettingsRow::BACKGROUND, SettingsRow::BACKGROUND_LOCK, SettingsRow::DET_STYLE,
     SettingsRow::BRIGHTNESS,
+#if defined(S3_BOX_3)
+    SettingsRow::SCREEN_SCALE,
+#endif
     SettingsRow::INVERT, SettingsRow::RGB_SWAP, SettingsRow::ROTATION_LOCK,
     // And the one light that is not on the screen at all.
     SettingsRow::STATUS_LIGHT,
@@ -299,6 +302,7 @@ static RowGroupId groupFor(SettingsRow r) {
         case SettingsRow::BACKGROUND:
         case SettingsRow::BACKGROUND_LOCK:
         case SettingsRow::BRIGHTNESS:
+        case SettingsRow::SCREEN_SCALE:
         case SettingsRow::INVERT:
         case SettingsRow::RGB_SWAP:
         case SettingsRow::ROTATION_LOCK:
@@ -1085,6 +1089,7 @@ static void drawRow(TFT_eSPI& t, int w, int y, int hgt, const char* label,
 // exactly where they look.
 static bool isStepperRow(SettingsRow r) {
     return r == SettingsRow::BRIGHTNESS
+        || r == SettingsRow::SCREEN_SCALE
 #if SQW_SOUND_ROWS
         || r == SettingsRow::SOUND_VOLUME
 #endif
@@ -1094,6 +1099,7 @@ bool uiSettingsIsStepper(SettingsRow r) { return isStepperRow(r); }
 static const char* stepperValue(SettingsRow r, char* buf, size_t n) {
     unsigned pct = 0;
     if (r == SettingsRow::BRIGHTNESS) pct = (unsigned)(Settings::brightness() * 100 / 255);
+    else if (r == SettingsRow::SCREEN_SCALE) pct = Settings::screenScale();
 #if SQW_SOUND_ROWS
     else if (r == SettingsRow::SOUND_VOLUME) pct = Settings::soundVolume();
 #endif
@@ -1190,6 +1196,9 @@ static void rowContent(SettingsRow r, const DetectionEngine& eng, char* valBuf, 
             break;
         case SettingsRow::BRIGHTNESS:
             label = "BRIGHT"; value = stepperValue(r, valBuf, valBufN);
+            break;
+        case SettingsRow::SCREEN_SCALE:
+            label = "SCALE"; value = stepperValue(r, valBuf, valBufN);
             break;
 #if SQW_SOUND_ROWS
         case SettingsRow::SOUND_VOLUME:

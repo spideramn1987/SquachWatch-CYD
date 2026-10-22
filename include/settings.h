@@ -181,6 +181,12 @@ namespace Settings {
     uint8_t    brightness();
     void       adjustBrightness(int8_t delta);   // clamps, persists
 
+    // 80..100% — scales the frame inward with a black bezel margin on boards
+    // whose housing clips the outer LCD edges (S3_BOX_3 defaults to 94%).
+    uint8_t    screenScale();
+    void       adjustScreenScale(int8_t delta);
+    void       setScreenScale(uint8_t pct);
+
     // ---- POWER SAVER -----------------------------------------------------
     // Every one of these is an independent, manually chosen setting; the
     // master switch below only gates whether any of them are acted on, so

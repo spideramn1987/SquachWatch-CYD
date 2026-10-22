@@ -1832,6 +1832,27 @@ static void initTouchFit() {
     const int w0 = portrait ? tft.width() : tft.height();
     const int h0 = portrait ? tft.height() : tft.width();
 
+#if defined(S3_BOX_3)
+    // ESP32-S3-Box-3: GT911 capacitive touch reports physical panel pixels
+    // in 320x240 landscape (a = 0..320, b = 0..240), mapped into the active
+    // Settings::screenScale() viewport across all 4 rotations.
+    {
+        const uint8_t pct = Settings::screenScale();
+        const int innerA = (pct < 100) ? (((320 * (int)pct + 50) / 100) & ~1) : 320;
+        const int innerB = (pct < 100) ? (((240 * (int)pct + 50) / 100) & ~1) : 240;
+        const int insetA = (320 - innerA) / 2;
+        const int insetB = (240 - innerB) / 2;
+        const float scaleA = 320.0f / (float)innerA;
+        const float scaleB = 240.0f / (float)innerB;
+        s_touchFit.xa =  0.0f;   s_touchFit.xb = -scaleB; s_touchFit.xc = 240.0f + scaleB * (float)insetB;
+        s_touchFit.ya =  scaleA; s_touchFit.yb =  0.0f;   s_touchFit.yc = -scaleA * (float)insetA;
+        s_touchFit.w0 = (int16_t)w0;
+        s_touchFit.h0 = (int16_t)h0;
+        s_calSource = CalSource::BUILT_IN;
+        return;
+    }
+#endif
+
     TouchFit::Fit saved;
     if (TouchCal::loadFit(saved) && saved.w0 == w0 && saved.h0 == h0) {
         s_touchFit = saved;
@@ -7995,6 +8016,15 @@ void loop() {
                             // the label or the number does nothing.
                             const int d = uiSettingsStepHit(*canvas, gestureStartX, gestureStartY, tft.width(), tft.height());
                             if (d) { Settings::adjustBrightness((int8_t)(d * 16)); applyBrightness(); }
+                            break;
+                        }
+                        case SettingsRow::SCREEN_SCALE: {
+                            const int d = uiSettingsStepHit(*canvas, gestureStartX, gestureStartY, tft.width(), tft.height());
+                            if (d) {
+                                Settings::adjustScreenScale((int8_t)(d * 2));
+                                initTouchFit();
+                                FramePush::invalidate();
+                            }
                             break;
                         }
                         case SettingsRow::CONFIDENCE: Settings::cycleMinConfidence(); break;

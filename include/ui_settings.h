@@ -18,6 +18,7 @@ enum class SettingsRow : uint8_t {
     BACKGROUND,
     BACKGROUND_LOCK,
     BRIGHTNESS,
+    SCREEN_SCALE,
     INVERT,
     RGB_SWAP,
     ROTATION_LOCK,

@@ -118,6 +118,12 @@ static uint32_t    s_typeMask = 0;
 // keeps it, which is why changing this default is safe.
 static uint8_t     s_sqSizeIx = 1;
 static uint8_t     s_brightness = 255;
+#if defined(S3_BOX_3)
+static const uint8_t DEFAULT_SCREEN_SCALE = 94;
+#else
+static const uint8_t DEFAULT_SCREEN_SCALE = 100;
+#endif
+static uint8_t     s_screenScale = DEFAULT_SCREEN_SCALE;
 static Confidence  s_minConf    = Confidence::LOW_CONF;
 static bool        s_boringMode = false;
 
@@ -608,6 +614,8 @@ void load() {
     if (s_deskBg != 255 && s_deskBg >= BACKGROUND_COUNT) s_deskBg = 255;
     s_brightness = s_prefs.getUChar("bri", 255);
     if (s_brightness < 32) s_brightness = 32;
+    s_screenScale = s_prefs.getUChar("scrScale", DEFAULT_SCREEN_SCALE);
+    if (s_screenScale < 80 || s_screenScale > 100) s_screenScale = DEFAULT_SCREEN_SCALE;
     s_autoQuiet  = s_prefs.getUChar("autoquiet", 0);
     if (s_autoQuiet != 0 && s_autoQuiet != 5 && s_autoQuiet != 10) s_autoQuiet = 0;
     s_minConf    = (Confidence)s_prefs.getUChar("conf", (uint8_t)Confidence::LOW_CONF);
@@ -1021,6 +1029,23 @@ void adjustBrightness(int8_t delta) {
     if (v > 255) v = 255;
     s_brightness = (uint8_t)v;
     s_prefs.putUChar("bri", s_brightness);
+}
+
+uint8_t screenScale() { return s_screenScale; }
+
+void setScreenScale(uint8_t pct) {
+    if (pct < 80) pct = 80;
+    if (pct > 100) pct = 100;
+    s_screenScale = pct;
+    s_prefs.putUChar("scrScale", s_screenScale);
+}
+
+void adjustScreenScale(int8_t delta) {
+    int v = (int)s_screenScale + delta;
+    if (v < 80) v = 80;
+    if (v > 100) v = 100;
+    s_screenScale = (uint8_t)v;
+    s_prefs.putUChar("scrScale", s_screenScale);
 }
 
 Confidence minConfidence() { return s_minConf; }
