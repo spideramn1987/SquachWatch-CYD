@@ -4,6 +4,7 @@
 #include "theme.h"
 #include "privacy.h"
 #include "squachy.h"
+#include "ui_clear.h"   // the battery lava lamp and the main screen's crowd renderer
 #include <Arduino.h>
 #include <stdio.h>
 #include <math.h>
@@ -11,7 +12,6 @@
 #include "meshtalk.h"
 #include "squachmesh.h"
 #include "settings.h"
-#include "ui_clear.h"   // the crowd is drawn by the main screen's renderer
 #endif
 
 namespace {
@@ -409,6 +409,7 @@ void uiDeskTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng, bool adva
         Theme::drawActiveBackground(t, now, 0, h, eng, advance);
         Theme::clearBackgroundFloor();
     }
+    uiClearDrawBatteryGauge(t, now);
     // The block runs out on its own; the announcement is what the user is
     // waiting for, so it is the first thing that happens.
     if (s_timer != Timer::IDLE && now >= s_timerEnd) {

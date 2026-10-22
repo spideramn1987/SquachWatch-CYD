@@ -1900,7 +1900,7 @@ static void drawLavaLamp(TFT_eSPI& t, uint32_t now, uint8_t L, bool chg) {
 
 // Asks the board for its battery once a second, and draws the lamp when there
 // is a cell to show.
-static void drawBatteryGauge(TFT_eSPI& t, uint32_t now) {
+void uiClearDrawBatteryGauge(TFT_eSPI& t, uint32_t now) {
     if (!s_battSrc) return;
     static uint32_t at = 0;
     static bool     has = false, chg = false;
@@ -1915,6 +1915,7 @@ static void drawBatteryGauge(TFT_eSPI& t, uint32_t now) {
     lampPlace(t, h2, ox, oy);
     if (DrawBand::has(oy, oy + (21 * h2 >> 1))) drawLavaLamp(t, now, pct, chg);
 }
+static void drawBatteryGauge(TFT_eSPI& t, uint32_t now) { uiClearDrawBatteryGauge(t, now); }
 
 #if defined(TWATCH_S3)
 void twatchGpsBadge(TFT_eSPI& t);   // main.cpp: the GPS counter, top centre, while the GPS is on

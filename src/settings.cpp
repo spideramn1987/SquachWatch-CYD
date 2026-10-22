@@ -119,7 +119,7 @@ static uint32_t    s_typeMask = 0;
 static uint8_t     s_sqSizeIx = 1;
 static uint8_t     s_brightness = 255;
 #if defined(S3_BOX_3)
-static const uint8_t DEFAULT_SCREEN_SCALE = 94;
+static const uint8_t DEFAULT_SCREEN_SCALE = 96;
 #else
 static const uint8_t DEFAULT_SCREEN_SCALE = 100;
 #endif

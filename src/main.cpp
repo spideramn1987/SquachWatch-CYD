@@ -3197,16 +3197,20 @@ static void sticksPowerUp() {
 }
 #endif
 
-#if defined(FREENOVE_S3) || defined(FREENOVE_S3_35) || defined(TDECK_PLUS)
+#if defined(FREENOVE_S3) || defined(FREENOVE_S3_35) || defined(TDECK_PLUS) || defined(S3_BOX_3)
 // The Freenove S3's battery: a 1-cell LiPo on its JST, a TP4054 charging it
 // from USB, and a 200K/200K divider from the cell to GPIO9 (ADC1, so WiFi does
 // not take it away) -- GPIO8 on the 3.5", per Freenove's battery sketch. The
 // T-Deck Plus is the same shape: its 2000 mAh cell through a 1:2 divider on
 // GPIO4 (LilyGo's BOARD_BAT_ADC), and a charger whose LED is the only status.
+// The ESP32-S3-Box-3's SENSOR dock holds a 1-cell Li-ion sensed on GPIO10
+// (ADC1_CH9) through a 301K/100K (4.01:1) voltage divider.
 #if defined(FREENOVE_S3_35)
 #define BOARD_BAT_ADC 8
 #elif defined(TDECK_PLUS)
 #define BOARD_BAT_ADC 4
+#elif defined(S3_BOX_3)
+#define BOARD_BAT_ADC 10
 #else
 #define BOARD_BAT_ADC 9
 #endif
@@ -3217,7 +3221,11 @@ static void sticksPowerUp() {
 static uint16_t boardBatteryMv() {
     uint32_t sum = 0;
     for (int i = 0; i < 8; i++) sum += analogReadMilliVolts(BOARD_BAT_ADC);
-    return (uint16_t)(sum / 8 * 2);   // the divider halves it
+#if defined(S3_BOX_3)
+    return (uint16_t)(sum * 401u / 800u);   // 301K/100K divider (4.01x across 8 samples)
+#else
+    return (uint16_t)(sum / 8 * 2);         // the divider halves it
+#endif
 }
 // Resting LiPo, per cell: rough, but a percent that moves the right way.
 static uint8_t boardBatteryPct(uint16_t mv) {
@@ -4672,6 +4680,8 @@ void setup() {
     usingCapTouch = Gt911::begin();
     Serial.println(usingCapTouch ? "ESP32-S3-Box-3 -- GT911 capacitive touch answered."
                                  : "ESP32-S3-Box-3 -- GT911 did not answer; no touch.");
+    { char b[16]; boardBatteryLine(b, sizeof b); Serial.printf("[batt] %s (raw GPIO%d %u mV)\n", b, BOARD_BAT_ADC, (unsigned)analogReadMilliVolts(BOARD_BAT_ADC)); }
+    uiClearSetBatterySource(boardBatteryState);
     Sound::begin();                        // ES8311 codec at 0x18 shares the GT911's Wire bus
 #elif defined(TWATCH_S3)
     // The T-Watch's FT6336, on I2C SDA 39 / SCL 40 at 0x38. No reset line;
@@ -6023,9 +6033,7 @@ void loop() {
     }
 #endif
 #if defined(FREENOVE_S3) || defined(FREENOVE_S3_35) || defined(S3_BOX_3)
-#if !defined(S3_BOX_3)
     if (g_consoleBatt) { g_consoleBatt = false; boardBatteryPrintLog(); }
-#endif
     // The speaker's housekeeping: hushed while the saver has the screen
     // dimmed; a chime for a squad message that just landed (once per
     // message, by its arrival time); and the console's SOUND commands.

@@ -40,6 +40,7 @@ void uiClearTick(TFT_eSPI& t, uint32_t now, const DetectionEngine& eng,
 // Boards without a battery never set one, and their screen does not change.
 typedef bool (*BatterySource)(uint8_t& pct, bool& charging);
 void uiClearSetBatterySource(BatterySource fn);
+void uiClearDrawBatteryGauge(TFT_eSPI& t, uint32_t now);
 
 #if SQUACH_MESH
 // SPIKE: the peer currently visiting, or nullptr. Owned by whatever discovers
