@@ -23,14 +23,16 @@
 #elif defined(S3_BOX_3)
 // The Espressif ESP32-S3-Box-3: GT911 on I2C (SDA 8, SCL 18), shared with
 // the ES8311 audio codec at 0x18. INT on GPIO 3; RST is shared with LCD reset
-// on GPIO 48 (strapped in setup() to latch 0x14 first).
+// on GPIO 48 (strapped in setup(): INT low latches 0x5D).
 #define PIN_I2C_SDA    8
 #define PIN_I2C_SCL   18
 #define PIN_TOUCH_RST -1
 #define PIN_TOUCH_INT  3
 #define I2C_HZ         400000
-#define GT911_ADDR_A   0x14
-#define GT911_ADDR_B   0x5D
+// INT held LOW across the reset release latches 0x5D (Goodix power-on
+// sequence), which is what setup() does -- so 0x5D first.
+#define GT911_ADDR_A   0x5D
+#define GT911_ADDR_B   0x14
 #define GT911_REG_PRODUCT_ID 0x8140
 #define GT911_REG_STATUS     0x814E
 #define GT911_REG_POINT1     0x814F
@@ -98,7 +100,14 @@ static bool i2cPresent(uint8_t addr) {
 // of reset is also what latches its address to 0x5D rather than 0x14, which
 // is why this runs before the identify rather than after a failed one.
 static void wake() {
-#if defined(TDECK_PLUS) || defined(S3_BOX_3)
+#if defined(S3_BOX_3)
+    // Pulse INT low to ensure GT911 exits sleep/idle mode, then float to input.
+    pinMode(PIN_TOUCH_INT, OUTPUT);
+    digitalWrite(PIN_TOUCH_INT, LOW);
+    delay(5);
+    pinMode(PIN_TOUCH_INT, INPUT);
+    delay(20);
+#elif defined(TDECK_PLUS)
     // No reset line to pulse: the chip woke with the power rail. INT is
     // left as the chip's output.
     pinMode(PIN_TOUCH_INT, INPUT);
@@ -178,11 +187,38 @@ static const uint32_t HOLD_MS = 80;   // GT911 reports every ~10-20 ms while tou
 static uint32_t s_trDownMs = 0, s_trReports = 0, s_trMaxGap = 0;
 #endif
 
+// A controller that stops answering is not polled every frame: each failed
+// transaction costs bus time, and on a cold boot the Box-3's GT911 went
+// silent and the loop spent itself retrying it. After a run of failures the
+// poll drops to twice a second, and each slow poll re-identifies the chip
+// (it may have come back on the other address).
+static uint16_t s_fails = 0;
+static uint32_t s_nextTryMs = 0;
+static const uint16_t FAILS_BEFORE_BACKOFF = 10;
+static const uint32_t BACKOFF_MS = 500;
+
 bool read(uint16_t& x, uint16_t& y) {
-    if (!s_addr) return false;
+    if (!s_addr && s_fails < FAILS_BEFORE_BACKOFF) return false;
+    if (s_fails >= FAILS_BEFORE_BACKOFF) {
+        const uint32_t now = millis();
+        if ((int32_t)(now - s_nextTryMs) < 0) return false;
+        s_nextTryMs = now + BACKOFF_MS;
+        if (!identify()) return false;
+        Serial.printf("[touch] GT911 back at 0x%02X\n", s_addr);
+        s_fails = 0;
+    }
 
     uint8_t status = 0;
-    if (!read16(GT911_REG_STATUS, &status, 1)) return false;
+    if (!read16(GT911_REG_STATUS, &status, 1)) {
+        if (s_fails < 0xFFFF) s_fails++;
+        if (s_fails == FAILS_BEFORE_BACKOFF) {
+            Serial.println(F("[touch] GT911 stopped answering; polling slowly until it does"));
+            s_down = false;
+            s_nextTryMs = millis() + BACKOFF_MS;
+        }
+        return false;
+    }
+    s_fails = 0;
 
     if (status & 0x80) {
         const uint8_t touches = status & 0x0F;

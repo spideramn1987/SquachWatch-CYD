@@ -4302,21 +4302,33 @@ void setup() {
 #if defined(SQW_S3)
     // GPIO27 and GPIO32 are the S3's PSRAM lines: touching either hangs the
     // chip until the watchdog reboots it. Both S3 boards' backlight is GPIO45.
-    pinMode(BL_PIN_S3, OUTPUT); digitalWrite(BL_PIN_S3, HIGH);
 #if defined(S3_BOX_3)
+    // Keep backlight off on cold boot until the panel is initialized;
+    // normally-white ILI9342 panels flash white if lit before init.
+    pinMode(BL_PIN_S3, OUTPUT); digitalWrite(BL_PIN_S3, LOW);
+
+    // Pre-assert display control pins so the LCD controller is cleanly
+    // deselected (CS high) and lines are stable during hardware reset.
+    pinMode(5, OUTPUT); digitalWrite(5, HIGH); // TFT_CS
+    pinMode(4, OUTPUT); digitalWrite(4, HIGH); // TFT_DC
+    pinMode(7, OUTPUT); digitalWrite(7, HIGH); // TFT_SCLK
+    pinMode(6, OUTPUT); digitalWrite(6, HIGH); // TFT_MOSI
+
     // ESP32-S3-Box-3 shared LCD + GT911 reset on GPIO 48 is active-high
     // (inverted transistor: HIGH asserts reset, LOW releases it to run).
     // Holding GT911 INT (GPIO 3) LOW across reset release deterministically
-    // latches GT911 I2C address 0x14 on cold power-up.
+    // latches GT911 I2C address 0x5D (Goodix power-on sequence).
     pinMode(3, OUTPUT);
     digitalWrite(3, LOW);
     pinMode(48, OUTPUT);
     digitalWrite(48, HIGH);
-    delay(20);
+    delay(30);
     digitalWrite(48, LOW);
-    delay(10);
+    delay(20);
     pinMode(3, INPUT);
-    delay(110);
+    delay(150);
+#else
+    pinMode(BL_PIN_S3, OUTPUT); digitalWrite(BL_PIN_S3, HIGH);
 #endif
 #elif defined(CROWPANEL7)
     // Nothing at all. This board's backlight is not a GPIO -- it is an I2C

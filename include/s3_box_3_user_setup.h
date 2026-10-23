@@ -4,7 +4,7 @@
 // TFT_eSPI's own User_Setup, so nothing in the library tree is edited.
 //
 // Hardware: ESP32-S3-WROOM-1-N16R8 (16 MB quad flash, 8 MB octal PSRAM),
-// native USB on GPIO 19/20, and a 320x240 ILI9341/ST7789V display on SPI.
+// native USB on GPIO 19/20, and a 320x240 ILI9342C display on SPI.
 // Pins from Espressif's esp-box-3 BSP: MOSI 6, SCLK 7, CS 5, DC 4, MISO not
 // wired (-1), and backlight 47 (HIGH is on).
 //
@@ -20,7 +20,7 @@
 
 #define USER_SETUP_INFO    "SquachWatch-CYD / ESP32-S3-Box-3 2.4 inch / ILI9341"
 
-#define ILI9341_2_DRIVER
+#define ILI9341_DRIVER
 #define TFT_WIDTH   240
 #define TFT_HEIGHT  320
 
@@ -40,10 +40,9 @@
 #define LOAD_FONT4
 #define SMOOTH_FONT
 
-// Default to 40 MHz (Espressif's rated SPI clock for the S3-Box-3 panel over
-// GPIO matrix pins 6/7). Bump to 80000000 if frame_push.cpp DMA runs clean.
+// 27 MHz (rated frequency for the S3-Box-3 panel over GPIO matrix in TFT_eSPI Setup 251)
 #ifndef SPI_FREQUENCY
-#define SPI_FREQUENCY         40000000
+#define SPI_FREQUENCY         27000000
 #endif
 #define SPI_READ_FREQUENCY    20000000
 
