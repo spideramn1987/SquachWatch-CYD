@@ -9,3 +9,5 @@ test/out/
 
 # Backup files
 *.bak
+
+*.pdf

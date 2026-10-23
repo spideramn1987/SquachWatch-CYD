@@ -4211,6 +4211,25 @@ static void panelShow()   {}
 #endif
 
 void setup() {
+#if defined(S3_BOX_3)
+    // ESP32-S3-Box-3 cold battery boot stabilization:
+    // When powered from the SENSOR dock single-cell 18650 battery via mechanical
+    // toggle switch SW1, contact bounce (10-30 ms) and inrush charging across
+    // 200+ uF of bulk/bypass capacitors cause voltage droop and rail oscillation.
+    // Clamping GPIO 48 HIGH immediately pulls LCD_RST and GT911 RST to GND via
+    // inverting N-MOSFET U18A, holding both controllers firmly in reset while
+    // VDD33 and VBAT settle. Keeping the backlight boost converter (ETA1611 via
+    // GPIO 47) strictly OFF prevents battery surge.
+    pinMode(48, OUTPUT);
+    digitalWrite(48, HIGH);                    // Assert active-high reset (clamps LCD_RST and GT911 RST to GND)
+    pinMode(BL_PIN_S3, OUTPUT);
+    digitalWrite(BL_PIN_S3, LOW);              // Backlight OFF
+    pinMode(5, OUTPUT); digitalWrite(5, HIGH); // TFT_CS inactive
+    pinMode(4, OUTPUT); digitalWrite(4, HIGH); // TFT_DC
+    pinMode(7, OUTPUT); digitalWrite(7, HIGH); // TFT_SCLK
+    pinMode(6, OUTPUT); digitalWrite(6, HIGH); // TFT_MOSI
+    pinMode(3, OUTPUT); digitalWrite(3, LOW);  // GT911 INT LOW for 0x5D latching
+#endif
 #if defined(ARDUINO_ARCH_ESP32) && !defined(CROWPANEL7) && !defined(TAB5)
     g_frameSprite = &frame;
 #endif
@@ -4246,7 +4265,11 @@ void setup() {
     // same thing on 2026-10-19: laggy and freezing only while on the cable.)
     Serial.setTxTimeoutMs(0);
 #endif
+#if defined(S3_BOX_3)
+    delay(700);
+#else
     delay(200);
+#endif
     Serial.println();
     printBootBanner();
 #if defined(TWATCH_S3)
@@ -4303,30 +4326,17 @@ void setup() {
     // GPIO27 and GPIO32 are the S3's PSRAM lines: touching either hangs the
     // chip until the watchdog reboots it. Both S3 boards' backlight is GPIO45.
 #if defined(S3_BOX_3)
-    // Keep backlight off on cold boot until the panel is initialized;
-    // normally-white ILI9342 panels flash white if lit before init.
-    pinMode(BL_PIN_S3, OUTPUT); digitalWrite(BL_PIN_S3, LOW);
-
-    // Pre-assert display control pins so the LCD controller is cleanly
-    // deselected (CS high) and lines are stable during hardware reset.
-    pinMode(5, OUTPUT); digitalWrite(5, HIGH); // TFT_CS
-    pinMode(4, OUTPUT); digitalWrite(4, HIGH); // TFT_DC
-    pinMode(7, OUTPUT); digitalWrite(7, HIGH); // TFT_SCLK
-    pinMode(6, OUTPUT); digitalWrite(6, HIGH); // TFT_MOSI
-
-    // ESP32-S3-Box-3 shared LCD + GT911 reset on GPIO 48 is active-high
-    // (inverted transistor: HIGH asserts reset, LOW releases it to run).
-    // Holding GT911 INT (GPIO 3) LOW across reset release deterministically
-    // latches GT911 I2C address 0x5D (Goodix power-on sequence).
-    pinMode(3, OUTPUT);
-    digitalWrite(3, LOW);
-    pinMode(48, OUTPUT);
-    digitalWrite(48, HIGH);
+    // Perform a clean double-reset release -> pulse -> release sequence
+    // to guarantee the ILI9342 panel controller and GT911 touch IC
+    // recover cleanly from cold battery power-on.
+    digitalWrite(48, LOW);   // First release
     delay(30);
-    digitalWrite(48, LOW);
-    delay(20);
-    pinMode(3, INPUT);
-    delay(150);
+    digitalWrite(48, HIGH);  // Second assert pulse
+    delay(50);
+    digitalWrite(48, LOW);   // Final release to run
+    delay(30);
+    pinMode(3, INPUT);       // Release GT911 INT to input mode
+    delay(150);              // Allow ILI9342 internal charge pumps and oscillator to stabilize
 #else
     pinMode(BL_PIN_S3, OUTPUT); digitalWrite(BL_PIN_S3, HIGH);
 #endif
